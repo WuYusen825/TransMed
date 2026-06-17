@@ -34,7 +34,9 @@ from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path as _Path
 from pydantic import BaseModel, EmailStr, Field
 
 from .config import settings
@@ -71,6 +73,21 @@ app.add_middleware(CORSMiddleware,
                    allow_headers=["*"],
                    allow_credentials=True,
                    max_age=3600)
+
+# ——— 挂载前端静态页面：http://127.0.0.1:8000/ 直接打开 TransMed UI ———
+_WEB_DIR = _Path(__file__).resolve().parent.parent / "transmed_web"
+if _WEB_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_WEB_DIR)), name="static")
+
+    @app.get("/", include_in_schema=False)
+    def _root():
+        return FileResponse(str(_WEB_DIR / "index.html"))
+
+    @app.get("/index.html", include_in_schema=False)
+    def _index_html():
+        return FileResponse(str(_WEB_DIR / "index.html"))
+else:
+    logger.warning("transmed_web/ not found at %s — / will serve JSON only", _WEB_DIR)
 
 # 基础日志配置 —— 让翻译引擎的警告/信息能出现在后端日志中
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
