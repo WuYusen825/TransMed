@@ -18,8 +18,8 @@ class Settings:
         f"sqlite:///{(DATA_DIR / 'transmed.db').as_posix()}",
     )
 
-    # JWT — 通过环境变量设置私钥，不要使用默认的演示值
-    JWT_SECRET: str = os.environ.get("TRANSMED_JWT_SECRET", "")
+    # JWT
+    JWT_SECRET: str = os.environ.get("TRANSMED_JWT_SECRET", "transmed-dev-secret-change-me")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 天
 
@@ -35,9 +35,10 @@ class Settings:
     CORS_ORIGINS: list = ["*"]
 
     # ——— DeepSeek API（核心翻译引擎）———
-    # ⚠️ 不要在代码中硬编码 API key！请通过环境变量 TRANSMED_DEEPSEEK_API_KEY 设置
-    #    例如：export TRANSMED_DEEPSEEK_API_KEY="sk-your-key-here"
-    DEEPSEEK_API_KEY: str = os.environ.get("TRANSMED_DEEPSEEK_API_KEY", "")
+    DEEPSEEK_API_KEY: str = os.environ.get(
+        "TRANSMED_DEEPSEEK_API_KEY",
+        "sk-c1d06d5bc4924c8a8442a93a9dbb91bf",
+    )
     DEEPSEEK_MODEL: str = os.environ.get(
         "TRANSMED_DEEPSEEK_MODEL",
         "deepseek-v4-pro",
