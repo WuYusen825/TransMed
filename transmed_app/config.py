@@ -35,10 +35,8 @@ class Settings:
     CORS_ORIGINS: list = ["*"]
 
     # ——— DeepSeek API（核心翻译引擎）———
-    DEEPSEEK_API_KEY: str = os.environ.get(
-        "TRANSMED_DEEPSEEK_API_KEY",
-        "sk-c1d06d5bc4924c8a8442a93a9dbb91bf",
-    )
+    # 通过环境变量 TRANSMED_DEEPSEEK_API_KEY 设置（不要写死在代码里，避免被 GitHub 密钥保护拦截）
+    DEEPSEEK_API_KEY: str = os.environ.get("TRANSMED_DEEPSEEK_API_KEY", "")
     DEEPSEEK_MODEL: str = os.environ.get(
         "TRANSMED_DEEPSEEK_MODEL",
         "deepseek-v4-pro",
