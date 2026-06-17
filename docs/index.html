@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TransMed — AI Multilingual Medical Companion</title>
+<meta name="api-base" content="" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231e40af'/%3E%3Ctext x='32' y='42' font-size='28' font-weight='700' text-anchor='middle' fill='white' font-family='system-ui'%3ETM%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">TM</div>
+    <div>
+      <h1>TransMed</h1>
+      <div class="tagline">AI-powered multilingual medical companion for foreigners in China</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a class="nav-link active" data-view="home">Home</a>
+    <a class="nav-link" data-view="translate">Translate</a>
+    <a class="nav-link" data-view="hospitals">Hospitals</a>
+    <a class="nav-link" data-view="navigation">Navigation</a>
+    <a class="nav-link" data-view="medication">Medication</a>
+    <a class="nav-link" data-view="insurance">Insurance</a>
+    <a class="nav-link" data-view="privacy">Privacy</a>
+    <a class="nav-link" data-view="profile">My Account</a>
+  </nav>
+
+  <div class="user-area">
+    <button id="btn-login" class="btn btn-light">Log in / Register</button>
+    <div id="user-chip" class="user-chip hidden">
+      <span id="user-email">—</span>
+      <button id="btn-logout" class="btn btn-light">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<!-- 登录/注册弹窗 -->
+<div id="auth-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-tabs">
+      <button class="tab active" data-tab="login">Log in</button>
+      <button class="tab" data-tab="register">Register</button>
+    </div>
+    <div id="tab-login" class="tab-panel">
+      <label>Email</label><input id="login-email" type="email" placeholder="demo@transmed.io" />
+      <label>Password</label><input id="login-password" type="password" placeholder="demo123" />
+      <button class="btn btn-primary" id="btn-do-login">Log in</button>
+      <p class="muted small mt">Demo user: demo@transmed.io / demo123 · Admin: admin@transmed.io / admin123</p>
+    </div>
+    <div id="tab-register" class="tab-panel hidden">
+      <label>Full name</label><input id="reg-name" type="text" placeholder="John Smith" />
+      <label>Email</label><input id="reg-email" type="email" placeholder="john@example.com" />
+      <label>Password (min 6 chars)</label><input id="reg-password" type="password" placeholder="••••••" />
+      <label>Preferred language</label>
+      <select id="reg-language">
+        <option value="en">English</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+      </select>
+      <label>Country</label><input id="reg-country" type="text" placeholder="e.g. United Kingdom" />
+      <button class="btn btn-primary" id="btn-do-register">Create my account</button>
+    </div>
+    <p id="auth-message" class="muted small mt center"></p>
+  </div>
+</div>
+
+<main id="main">
+
+  <!-- 首页 -->
+  <section class="view view-home active" data-view="home">
+    <div class="hero">
+      <h2>Your cross-cultural medical journey, made simple</h2>
+      <p>From AI multilingual translation with confidence scoring, to smart hospital recommendation, indoor AR-style navigation, medication reminders and insurance claim management — TransMed keeps you in control of every step.</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" data-go="translate">Start translating</button>
+        <button class="btn" data-go="hospitals">Find a hospital</button>
+        <button class="btn" data-go="profile">My account</button>
+      </div>
+    </div>
+    <div class="features">
+      <div class="feature"><div class="f-title">🎯 AI Medical Translation</div><p>Vertical medical-domain engine with ICD/ATC term alignment. Built-in confidence score with 4-level risk alerts.</p></div>
+      <div class="feature"><div class="f-title">🏥 Hospital Recommendation</div><p>Symptom-based ranking across specialties, accepted insurances, wait time and travel distance.</p></div>
+      <div class="feature"><div class="f-title">🧭 Indoor Navigation</div><p>Department-aware BFS routing from the outpatient hall to your consultation room.</p></div>
+      <div class="feature"><div class="f-title">💊 Medication Reminders</div><p>Personalized schedules with warnings, side effects and drug interaction info.</p></div>
+      <div class="feature"><div class="f-title">🛡️ Insurance Claims</div><p>Document checklists and workflows for BUPA, Cigna, Ping An & more.</p></div>
+      <div class="feature"><div class="f-title">🔒 Privacy by Design</div><p>Data minimization. Anonymized sessions. One-click export or wipe of your personal records.</p></div>
+    </div>
+    <div class="stats" id="home-stats"></div>
+  </section>
+
+  <!-- 翻译 -->
+  <section class="view" data-view="translate">
+    <h2>AI Medical Translation</h2>
+    <p class="muted">Vertical medical model. Each translation is saved with its confidence score and can be user-confirmed to close the safety loop.</p>
+    <div class="translate-box">
+      <div class="lang-row">
+        <label>From <select id="src-lang"></select></label>
+        <button id="swap-lang" title="Swap">⇄</button>
+        <label>To <select id="tgt-lang"></select></label>
+      </div>
+      <div class="translate-cols">
+        <div class="col">
+          <textarea id="src-text" placeholder="Describe symptoms or what the doctor said...">I have a headache and fever since 3 days ago.</textarea>
+          <div class="row-between">
+            <span class="muted small">Tip: be specific about duration, intensity and allergies.</span>
+            <button class="btn btn-primary" id="btn-translate">Translate</button>
+          </div>
+        </div>
+        <div class="col">
+          <div id="tgt-text" class="translated-area">Translation will appear here.</div>
+          <div id="confidence-bar" class="confidence hidden">
+            <div id="engine-label" class="engine-label hidden" style="margin-bottom:8px;padding:6px 10px;border-radius:6px;font-size:13px;display:inline-block;">—</div>
+            <div class="confidence-label">Confidence: <b id="conf-value">—</b>% · Risk: <b id="risk-value">—</b></div>
+            <div class="confidence-track"><div class="confidence-fill" id="conf-fill" style="width:0%"></div></div>
+            <div class="confidence-advice" id="conf-advice"></div>
+            <div class="matched-terms" id="matched-terms"></div>
+            <button id="btn-confirm-risk" class="btn btn-warn hidden">I acknowledge the risk alert</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Quick symptom templates</h3>
+    <div class="chips" id="symptom-chips"></div>
+
+    <h3>My recent translations <span class="muted small">(requires login)</span></h3>
+    <div id="my-translations" class="med-list">
+      <p class="muted">None yet or not signed in.</p>
+    </div>
+  </section>
+
+  <!-- 分诊 & 医院 -->
+  <section class="view" data-view="hospitals">
+    <h2>Smart Triage & Hospital Finder</h2>
+
+    <div class="triage-card">
+      <div class="row">
+        <label>Describe your symptoms:</label>
+        <input id="triage-input" type="text" placeholder="e.g. persistent headache and high fever for 2 days" />
+      </div>
+      <div class="row">
+        <label>Insurance filter:</label>
+        <select id="insurance-filter">
+          <option value="">Any</option>
+          <option>BUPA</option>
+          <option>Cigna</option>
+          <option>Aetna</option>
+          <option>MSH</option>
+          <option>Allianz</option>
+          <option>Ping An</option>
+          <option>International SOS</option>
+          <option>AXA PPP</option>
+        </select>
+        <label>Department / Specialty:</label>
+        <select id="specialty-filter">
+          <option value="">All</option>
+          <option>Cardiology</option>
+          <option>Neurology</option>
+          <option>Pediatrics</option>
+          <option>Obstetrics & Gynecology</option>
+          <option>Orthopedics</option>
+          <option>Dental</option>
+          <option>Dermatology</option>
+          <option>Emergency</option>
+          <option>General Medicine</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="btn-triage">Analyze & Recommend</button>
+      <div class="row sort-row">
+        <label>Sort by:</label>
+        <label class="sort-option"><input type="radio" name="sort" id="sort-rating" checked /> Rating</label>
+        <label class="sort-option"><input type="radio" name="sort" id="sort-wait" /> Wait time</label>
+        <label class="sort-option"><input type="radio" name="sort" id="sort-distance" /> Distance</label>
+      </div>
+    </div>
+
+    <div id="triage-result" class="triage-result hidden"></div>
+
+    <div id="hospital-list" class="hospital-list"></div>
+  </section>
+
+  <!-- 院内导航 -->
+  <section class="view" data-view="navigation">
+    <h2>Indoor Hospital Navigation</h2>
+    <p class="muted">Step-by-step indoor navigation from entrance to destination.</p>
+    <div class="row">
+      <label>Hospital:</label>
+      <select id="nav-hospital"></select>
+      <label>Destination:</label>
+      <select id="nav-dest"></select>
+      <button class="btn btn-primary" id="btn-navigate">Show route</button>
+    </div>
+    <div id="nav-info" class="card nav-info">
+      <span id="nav-info-hospital" class="muted small">—</span>
+      <span id="nav-info-distance" class="muted small">—</span>
+    </div>
+    <div class="nav-stage">
+      <svg id="nav-svg" viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="nav-route" class="nav-route"><p class="muted">Choose a destination, then click "Show route" to display the guided path.</p></div>
+    </div>
+  </section>
+
+  <!-- 用药提醒 -->
+  <section class="view" data-view="medication">
+    <h2>Medication & Reminders</h2>
+    <div class="med-grid">
+      <div class="card">
+        <h3>Add a medication</h3>
+        <label>From library (optional)</label>
+        <select id="med-picker"></select>
+        <label>Or custom name</label>
+        <input id="med-custom" type="text" placeholder="e.g. Vitamin D" />
+        <label>Dosage / instructions</label>
+        <input id="med-dosage" type="text" placeholder="e.g. 1 tablet each morning" />
+        <label>Reminder times</label>
+        <input id="med-times" type="text" placeholder="08:00, 20:00" />
+        <label>Notes</label>
+        <textarea id="med-notes" placeholder="After meals, keep away from dairy..."></textarea>
+        <button class="btn btn-primary" id="btn-add-med">Save to my list</button>
+        <p class="muted small mt">Requires login. Your records are stored encrypted on our server.</p>
+      </div>
+      <div class="card">
+        <h3>Drug information</h3>
+        <div id="med-info"></div>
+      </div>
+    </div>
+    <h3>My medication list</h3>
+    <div id="med-list" class="med-list">
+      <p class="muted">Not signed in or no medication yet.</p>
+    </div>
+  </section>
+
+  <!-- 保险 -->
+  <section class="view" data-view="insurance">
+    <h2>Insurance Claims</h2>
+    <p class="muted">Select your provider to see the required documents and recommended workflow.</p>
+    <div class="row">
+      <label>Provider:</label>
+      <select id="ins-provider">
+        <option value="">- Select -</option>
+        <option>BUPA</option>
+        <option>Cigna</option>
+        <option>Ping An</option>
+      </select>
+      <button class="btn btn-primary" id="btn-insurance">Show checklist</button>
+    </div>
+    <div id="ins-result"></div>
+    <h3>My saved claims</h3>
+    <div class="card">
+      <div class="row">
+        <label>New claim — Provider:</label>
+        <input id="claim-provider" type="text" placeholder="e.g. BUPA" />
+        <label>Amount (¥):</label>
+        <input id="claim-amount" type="number" placeholder="0" />
+      </div>
+      <div class="row">
+        <label>Notes:</label>
+        <input id="claim-notes" type="text" placeholder="e.g. Outpatient visit / Beijing Union" />
+        <button class="btn btn-primary" id="btn-add-claim">Save claim</button>
+      </div>
+    </div>
+    <div id="my-claims" class="med-list"></div>
+  </section>
+
+  <!-- 隐私 -->
+  <section class="view" data-view="privacy">
+    <h2>Privacy Center</h2>
+    <p class="muted">TransMed uses a privacy-by-design architecture. Your identity is optional; sensitive medical text is processed with minimal retention.</p>
+    <div id="privacy-policy" class="card"></div>
+    <h3>Your records</h3>
+    <div class="row">
+      <button class="btn" id="btn-export">Export all my data (JSON)</button>
+      <button class="btn btn-danger" id="btn-wipe">Delete all personal records</button>
+    </div>
+    <pre id="export-box" class="export-box hidden"></pre>
+    <h3>Feedback</h3>
+    <div class="card">
+      <label>Category</label>
+      <select id="fb-category">
+        <option>translation</option>
+        <option>hospital</option>
+        <option>medication</option>
+        <option>feature request</option>
+        <option>other</option>
+      </select>
+      <label>Rating (1-5)</label>
+      <input id="fb-rating" type="number" min="1" max="5" value="5" />
+      <label>Your message</label>
+      <textarea id="fb-content" placeholder="Tell us how we can improve..."></textarea>
+      <button class="btn btn-primary" id="btn-send-feedback">Submit feedback</button>
+      <p id="fb-status" class="muted small mt"></p>
+    </div>
+  </section>
+
+  <!-- 个人中心 -->
+  <section class="view" data-view="profile">
+    <h2>My Account</h2>
+    <div id="profile-body">
+      <p class="muted">Log in to see your profile, medication and saved translations.</p>
+      <button class="btn btn-primary" id="btn-profile-login">Log in / Register</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  TransMed · AI for cross-cultural healthcare · For demonstration purposes only. Critical medical decisions must be confirmed with licensed physicians.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
