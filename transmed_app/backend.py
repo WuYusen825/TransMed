@@ -6,13 +6,10 @@ Endpoints:
     /api/translate/logs — personal translation history (login required)
     /api/translate/{id}/confirm — confirm a translation (safety loop)
     /api/triage         — symptom triage with department recommendation
-    /api/hospitals      — hospital list with filters (specialty, insurance, wait-time)
+    /api/hospitals      — hospital list with filters (specialty, wait-time)
     /api/hospitals/{id} — hospital detail with departments
-    /api/navigation     — indoor navigation from A to B (with path + SVG coords)
-    /api/navigation/map — full node/path list for visualisation
     /api/medications    — medication list with detailed info (search)
     /api/medications/{key} — single medication detail
-    /api/insurance      — insurance providers + in-network hospitals
     /api/medical_terms  — medical term dictionary (EN↔ZH)
     /api/feedback       — submit feedback (anonymous or login)
     /api/privacy/export — export my personal data (login required)
@@ -46,8 +43,9 @@ from .translator import translate as do_translate, translate_with_rag, risk_leve
 from .auth import (hash_password, verify_password, create_jwt,
                    decode_jwt, require_current_user, get_current_user_optional)
 from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
-                   MEDICATIONS, INSURANCE_PROVIDERS, INDOOR_MAP,
+                   MEDICATIONS,
                    SYMPTOM_TO_SPECIALTIES, SPECIALTY_ALIASES, HOSPITAL_STRENGTH)
+from . import reviews as _reviews
 from . import amap as _amap
 
 # ------------------------------------------------------------------ initialise DB
@@ -102,7 +100,6 @@ class HealthOut(BaseModel):
     medications: int
     triage_rules: int
     medical_terms: int
-    insurance_providers: int
 
 
 class TranslateIn(BaseModel):
@@ -152,38 +149,8 @@ class HospitalOut(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     specialties: List[str]
-    insurance: List[str]
     languages: List[str]
     departments: List[Dict[str, Any]]
-
-
-class NavNode(BaseModel):
-    id: str
-    label: str
-    floor: int
-    x: int
-    y: int
-
-
-class NavRoute(BaseModel):
-    node_id: str
-    instruction: str
-    floor: int
-    x: int
-    y: int
-
-
-class NavIn(BaseModel):
-    hospital_id: str = "default"
-    from_node: str = "entrance"
-    to: str = "pharmacy"
-
-
-class NavOut(BaseModel):
-    entry: str
-    destination: str
-    route: List[NavRoute]
-    total_distance: float
 
 
 class MedicationOut(BaseModel):
@@ -201,17 +168,6 @@ class MedicationOut(BaseModel):
     price_cny: int
 
 
-class InsuranceProvider(BaseModel):
-    name: str
-    name_zh: str
-    website: str
-    claims_hotline: str
-    notes: str
-    notes_zh: str
-    coverage_types: List[str]
-    in_network_hospitals: List[str]
-
-
 class MedTerm(BaseModel):
     english: str
     chinese: str
@@ -223,7 +179,6 @@ class StatsOut(BaseModel):
     medications: int
     triage_rules: int
     medical_terms: int
-    insurance_providers: int
     users: int
     translations: int
     urgent_events: int
@@ -257,7 +212,7 @@ class PasswordChange(BaseModel):
 class FeedbackIn(BaseModel):
     rating: int = 5
     comment: str = ""
-    category: str = "general"  # general, translation, hospital, navigation, insurance
+    category: str = "general"  # general, translation, hospital, navigation
 
 
 class AuthOut(BaseModel):
@@ -302,7 +257,6 @@ def _hospital_to_out(h: dict) -> HospitalOut:
         distance_km=h.get("distance_km", 0),
         lat=h.get("lat"), lng=h.get("lng"),
         specialties=h.get("specialties", []),
-        insurance=h.get("insurance", []),
         languages=h.get("languages", []),
         departments=[_norm_department(d) for d in h.get("departments", [])],
     )
@@ -312,8 +266,7 @@ def _hospital_to_out(h: dict) -> HospitalOut:
 @app.get("/health", response_model=HealthOut)
 def health():
     return HealthOut(hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-                     triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS),
-                     insurance_providers=len(INSURANCE_PROVIDERS))
+                     triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS))
 
 
 # -------------------------------------------------------------- translate
@@ -580,9 +533,9 @@ def _hospital_has_specialty(hospital: dict, canonical_specialty: str) -> float:
     return 10.0
 
 
-def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], insurance: str = "", language: str = "", urgent: bool = False) -> dict:
+def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], language: str = "", urgent: bool = False) -> dict:
     """Calculate aggregate recommendation score + list of reasons for hospital.
-    Returns {"score": float, "reasons": List[str], "matched_specialties": List[str], "matched_insurance": bool, "matched_language": bool}"""
+    Returns {"score": float, "reasons": List[str], "matched_specialties": List[str], "matched_language": bool}"""
     reasons: List[str] = []
     specialty_score_sum = 0.0
     matched_specialties: List[str] = []
@@ -618,22 +571,14 @@ def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], in
         wait_min = 30.0
     wait_score = max(0.0, 30.0 - wait_min)
 
-    # insurance filter & language filter
-    matched_insurance = False
+    # language filter
     matched_language = False
-    if insurance and insurance.strip():
-        insurance_ins = [i.strip() for i in hospital.get("insurance", [])]
-        if insurance.lower() in [i.lower() for i in insurance_ins]:
-            matched_insurance = True
     if language and language.strip():
         langs = [l.strip() for l in hospital.get("languages", [])]
         if language.lower() in [l.lower() for l in langs]:
             matched_language = True
 
     total = specialty_score_sum + rating_score + distance_score + wait_score
-    if matched_insurance:
-        total += 15
-        reasons.append("Accepts your insurance")
     if matched_language:
         total += 10
         reasons.append("Speaks your language")
@@ -653,7 +598,6 @@ def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], in
         "wait_score": round(wait_score, 2),
         "reasons": reasons[:5],
         "matched_specialties": matched_specialties,
-        "matched_insurance": matched_insurance,
         "matched_language": matched_language,
     }
 
@@ -742,7 +686,6 @@ def triage(body: TriageIn,
 def hospitals_list(keyword: Optional[str] = "",
                    city: Optional[str] = "北京",
                    specialty: Optional[str] = None,
-                   insurance: Optional[str] = None,
                    language: Optional[str] = None,
                    urgent: bool = False,
                    symptom: Optional[str] = None,
@@ -772,13 +715,10 @@ def hospitals_list(keyword: Optional[str] = "",
     # --- 过滤
     filtered = []
     for h in hospitals:
-        # specialty/insurance/language filter
+        # specialty/language filter
         if specialty and specialty.strip():
             haystack = " ".join([str(s).lower() for s in (h.get("specialties") or [])])
             if specialty.lower() not in haystack and specialty.lower() not in str(h.get("name", "")).lower():
-                continue
-        if insurance:
-            if insurance not in (h.get("insurance") or []):
                 continue
         if language:
             langs = h.get("languages") or []
@@ -797,7 +737,7 @@ def hospitals_list(keyword: Optional[str] = "",
     if specialty_scores:
         scored_h = []
         for h in filtered:
-            rec = _recommendation_score(h, specialty_scores, insurance=insurance or "", language=language or "", urgent=urgent)
+            rec = _recommendation_score(h, specialty_scores, language=language or "", urgent=urgent)
             h_copy = dict(h)
             h_copy["recommendation"] = rec
             scored_h.append((h_copy, rec["score"]))
@@ -806,6 +746,12 @@ def hospitals_list(keyword: Optional[str] = "",
     else:
         # 无特殊评分，则按 rating 排序
         enriched = sorted(filtered, key=lambda h: float(h.get("rating") or 0), reverse=True)
+
+    # --- 追加真实评价数据（评分、点评数、点评片段）
+    try:
+        enriched = _reviews.enrich_hospital_list(enriched[:20])
+    except Exception:
+        pass
 
     return {"hospitals": enriched, "count": len(enriched),
             "data_source": result.get("data_source", "demo"),
@@ -817,7 +763,6 @@ def hospitals_list(keyword: Optional[str] = "",
 class RecommendationIn(BaseModel):
     symptoms: str
     city: str = "北京"
-    insurance: Optional[str] = None
     language: Optional[str] = None
     max_wait: Optional[int] = None
     specialty_override: Optional[str] = None
@@ -850,7 +795,6 @@ def recommendations_api(body: RecommendationIn):
     for h in hospitals:
         rec = _recommendation_score(
             h, specialty_scores,
-            insurance=body.insurance or "",
             language=body.language or "",
             urgent=triage_out.urgent,
         )
@@ -859,6 +803,12 @@ def recommendations_api(body: RecommendationIn):
         scored_h.append((h_copy, rec["score"]))
     scored_h.sort(key=lambda pair: pair[1], reverse=True)
     ranked = [h for h, _ in scored_h[: body.limit]]
+
+    # 追加真实评价数据
+    try:
+        ranked = _reviews.enrich_hospital_list(ranked)
+    except Exception:
+        pass
 
     return {
         "triage": {
@@ -882,7 +832,44 @@ def hospital_detail(hospital_id: str):
     h = _find_hospital(hospital_id)
     if not h:
         raise HTTPException(404, "hospital not found")
-    return _hospital_to_out(h)
+    # 追加点评
+    try:
+        h = _reviews.enrich_hospital_list([h])[0]
+    except Exception:
+        pass
+    out = _hospital_to_out(h)
+    # 将点评字段附加到返回字典
+    result = out.model_dump() if hasattr(out, "model_dump") else out.dict()
+    result["review_count"] = h.get("review_count", 0)
+    result["photo_count"] = h.get("photo_count", 0)
+    result["reviews"] = h.get("reviews", [])
+    result["review_source"] = h.get("review_source", "fallback")
+    return result
+
+
+# -------------------------------------------------------------- reviews
+@app.get("/api/hospitals/{hospital_id}/reviews")
+def hospital_reviews(hospital_id: str, name: Optional[str] = None, city: str = "北京"):
+    """返回指定医院的真实评价数据。
+    - 若提供 `hospital_id` 是高德 POI id（不包含空格），会优先调用高德 POI 详情
+    - 否则通过 `name` 参数走本地 + 好大夫在线回退
+    """
+    poi_id = None
+    h_name = None
+    # 尝试从本地 hospitals 查找
+    local = _find_hospital(hospital_id)
+    if local:
+        h_name = local.get("name_zh") or local.get("name")
+    # 判断是否是 POI ID（纯字母数字且长度 > 5）
+    if hospital_id and len(hospital_id) >= 5 and hospital_id.replace("-", "").isalnum():
+        poi_id = hospital_id
+    # 回退：如果有 name 参数覆盖
+    if name and name.strip():
+        h_name = name.strip()
+    if not poi_id and not h_name:
+        raise HTTPException(400, "either a valid hospital_id or name is required")
+    result = _reviews.get_hospital_reviews(poi_id=poi_id, hospital_name=h_name, city=city)
+    return {"hospital": h_name or hospital_id, **result}
 
 
 # -------------------------------------------------------------- navigation（室外导航）
@@ -1153,23 +1140,6 @@ def medication_detail(key: str):
     )
 
 
-# -------------------------------------------------------------- insurance
-@app.get("/api/insurance")
-def insurance_list(provider: Optional[str] = None):
-    results = []
-    for p in INSURANCE_PROVIDERS:
-        if provider and provider.lower() not in p["name"].lower():
-            continue
-        results.append(InsuranceProvider(
-            name=p["name"], name_zh=p["name_zh"], website=p["website"],
-            claims_hotline=p.get("claims_hotline", ""),
-            notes=p.get("notes", ""), notes_zh=p.get("notes_zh", ""),
-            coverage_types=p.get("coverage_types", []),
-            in_network_hospitals=p.get("in_network_hospitals", [])
-        ))
-    return {"providers": results, "count": len(results)}
-
-
 # -------------------------------------------------------------- medical terms
 @app.get("/api/medical_terms")
 def medical_terms_list(q: Optional[str] = None, limit: int = 50):
@@ -1208,7 +1178,6 @@ def feedback(body: FeedbackIn,
 def privacy_export(current_user=Depends(require_current_user), db=Depends(get_db)):
     logs = db.query(models.TranslationLog).filter(models.TranslationLog.user_id == current_user.id).all()
     meds = db.query(models.Medication).filter(models.Medication.user_id == current_user.id).all()
-    claims = db.query(models.InsuranceClaim).filter(models.InsuranceClaim.user_id == current_user.id).all()
     triages = db.query(models.TriageRecord).filter(models.TriageRecord.user_id == current_user.id).all()
     feedback = db.query(models.Feedback).filter(models.Feedback.user_id == current_user.id).all()
     return {
@@ -1222,10 +1191,6 @@ def privacy_export(current_user=Depends(require_current_user), db=Depends(get_db
                                 "notes": m.notes, "is_active": m.is_active,
                                 "created_at": m.created_at.isoformat() if m.created_at else None}
                                for m in meds],
-        "insurance_claims": [{"id": c.id, "provider": c.provider, "status": c.status,
-                              "amount": c.estimated_amount, "notes": c.notes,
-                              "created_at": c.created_at.isoformat() if c.created_at else None}
-                            for c in claims],
         "triages": [{"id": t.id, "symptoms": t.symptoms, "department": t.department_en,
                      "urgent": t.is_urgent, "created_at": t.created_at.isoformat() if t.created_at else None}
                     for t in triages],
@@ -1240,7 +1205,6 @@ def privacy_wipe(current_user=Depends(require_current_user), db=Depends(get_db))
     # delete all user data but keep the account (otherwise user couldn't re-login)
     db.query(models.TranslationLog).filter(models.TranslationLog.user_id == current_user.id).delete()
     db.query(models.Medication).filter(models.Medication.user_id == current_user.id).delete()
-    db.query(models.InsuranceClaim).filter(models.InsuranceClaim.user_id == current_user.id).delete()
     db.query(models.TriageRecord).filter(models.TriageRecord.user_id == current_user.id).delete()
     db.query(models.Feedback).filter(models.Feedback.user_id == current_user.id).delete()
     db.commit()
@@ -1253,7 +1217,6 @@ def stats(db=Depends(get_db)):
     return StatsOut(
         hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
         triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS),
-        insurance_providers=len(INSURANCE_PROVIDERS),
         users=db.query(models.User).count(),
         translations=db.query(models.TranslationLog).count(),
         urgent_events=db.query(models.TriageRecord).filter(models.TriageRecord.is_urgent == True).count(),
@@ -1313,60 +1276,6 @@ def change_password(body: PasswordChange,
     current_user.password_hash = hash_password(body.new_password)
     db.commit()
     return {"ok": True}
-
-
-# -------------------------------------------------------------- insurance claims
-class ClaimIn(BaseModel):
-    provider: str
-    status: str = "draft"
-    estimated_amount: Optional[float] = None
-    notes: str = ""
-
-
-@app.get("/api/insurance/claims")
-def claims_list(current_user=Depends(require_current_user), db=Depends(get_db)):
-    recs = (db.query(models.InsuranceClaim)
-            .filter(models.InsuranceClaim.user_id == current_user.id)
-            .order_by(models.InsuranceClaim.created_at.desc()).all())
-    return [{"id": r.id, "provider": r.provider, "status": r.status,
-             "amount": r.estimated_amount, "notes": r.notes,
-             "created_at": r.created_at.isoformat() if r.created_at else None} for r in recs]
-
-
-@app.post("/api/insurance/claims")
-def claim_add(body: ClaimIn,
-              current_user=Depends(require_current_user), db=Depends(get_db)):
-    r = models.InsuranceClaim(user_id=current_user.id, provider=body.provider,
-                              status=body.status, estimated_amount=body.estimated_amount or 0,
-                              notes=body.notes)
-    db.add(r); db.commit(); db.refresh(r)
-    return {"id": r.id, "ok": True}
-
-
-@app.put("/api/insurance/claims/{cid}")
-def claim_update(cid: int, body: ClaimIn,
-                 current_user=Depends(require_current_user), db=Depends(get_db)):
-    r = (db.query(models.InsuranceClaim)
-         .filter(models.InsuranceClaim.id == cid,
-                 models.InsuranceClaim.user_id == current_user.id).first())
-    if not r:
-        raise HTTPException(404, "not found")
-    r.provider = body.provider; r.status = body.status
-    r.estimated_amount = body.estimated_amount or 0; r.notes = body.notes
-    db.commit()
-    return {"ok": True, "id": r.id}
-
-
-@app.delete("/api/insurance/claims/{cid}")
-def claim_delete(cid: int,
-                 current_user=Depends(require_current_user), db=Depends(get_db)):
-    r = (db.query(models.InsuranceClaim)
-         .filter(models.InsuranceClaim.id == cid,
-                 models.InsuranceClaim.user_id == current_user.id).first())
-    if not r:
-        raise HTTPException(404, "not found")
-    db.delete(r); db.commit()
-    return {"ok": True, "id": cid}
 
 
 # -------------------------------------------------------------- triage records

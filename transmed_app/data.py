@@ -10,7 +10,6 @@ HOSPITALS = [
      "phone": "+86 10 6915 6177", "hours": "Mon-Fri 08:00-17:00, Emergency 24/7",
      "rating": 4.9, "lat": 39.9094, "lng": 116.4165, "distance_km": 1.2, "wait_minutes": 25,
      "specialties": ["Internal Medicine", "Cardiology", "Neurology", "Pediatrics", "Oncology"],
-     "insurance": ["BUPA", "Cigna", "MSH", "Ping An"],
      "departments": [("Internal Medicine", "内科", 20), ("Cardiology", "心内科", 15),
                      ("Neurology", "神经内科", 18), ("Pediatrics", "儿科", 12),
                      ("Emergency", "急诊", 5)],
@@ -20,7 +19,6 @@ HOSPITALS = [
      "phone": "+86 10 5927 7000", "hours": "Mon-Sun 08:00-20:00, Emergency 24/7",
      "rating": 4.95, "lat": 39.9754, "lng": 116.4677, "distance_km": 7.5, "wait_minutes": 5,
      "specialties": ["Family Medicine", "Pediatrics", "Obstetrics & Gynecology", "Dental", "Emergency"],
-     "insurance": ["BUPA", "Cigna", "Aetna", "MSH", "Allianz", "Ping An", "International SOS"],
      "departments": [("Family Medicine", "全科", 3), ("Pediatrics", "儿科", 5),
                      ("Obstetrics & Gynecology", "妇产科", 8), ("Dental", "口腔科", 10),
                      ("Emergency", "急诊", 2), ("Cardiology", "心内科", 12),
@@ -31,7 +29,6 @@ HOSPITALS = [
      "phone": "+86 10 6513 2266", "hours": "Mon-Fri 08:00-17:00",
      "rating": 4.8, "lat": 39.9112, "lng": 116.4193, "distance_km": 2.1, "wait_minutes": 20,
      "specialties": ["Geriatrics", "Cardiology", "Endocrinology", "Neurology"],
-     "insurance": ["BUPA", "Aetna", "Allianz", "Ping An"],
      "departments": [("Geriatrics", "老年医学", 25), ("Cardiology", "心内科", 20),
                      ("Endocrinology", "内分泌科", 18), ("Neurology", "神经内科", 22),
                      ("General Medicine", "全科", 15)],
@@ -41,7 +38,6 @@ HOSPITALS = [
      "phone": "+86 10 6434 0434", "hours": "Mon-Sun 08:30-20:00",
      "rating": 4.85, "lat": 39.9757, "lng": 116.4798, "distance_km": 8.3, "wait_minutes": 8,
      "specialties": ["Obstetrics", "Gynecology", "Pediatrics", "Pediatric Surgery"],
-     "insurance": ["Cigna", "BUPA", "MSH", "Aetna", "Ping An"],
      "departments": [("Obstetrics", "产科", 10), ("Gynecology", "妇科", 10),
                      ("Pediatrics", "儿科", 8), ("Pediatric Surgery", "小儿外科", 15)],
      "languages": ["English", "Chinese", "Japanese"]},
@@ -50,7 +46,6 @@ HOSPITALS = [
      "phone": "+86 755 8691 3333", "hours": "Mon-Sun 08:30-17:30, Emergency 24/7",
      "rating": 4.75, "lat": 22.5357, "lng": 114.0608, "distance_km": 25.0, "wait_minutes": 15,
      "specialties": ["Cardiology", "Oncology", "Orthopedics", "General Medicine", "Pediatrics"],
-     "insurance": ["Cigna", "BUPA", "MSH", "Aetna", "Allianz"],
      "departments": [("Cardiology", "心内科", 18), ("Oncology", "肿瘤科", 25),
                      ("Orthopedics", "骨科", 15), ("General Medicine", "全科", 10),
                      ("Pediatrics", "儿科", 12), ("Emergency", "急诊", 5)],
@@ -60,7 +55,6 @@ HOSPITALS = [
      "phone": "+86 10 6505 2288", "hours": "Mon-Fri 08:30-19:00, Sat 09:00-13:00",
      "rating": 4.7, "lat": 39.9775, "lng": 116.4914, "distance_km": 6.8, "wait_minutes": 10,
      "specialties": ["Family Medicine", "Pediatrics", "Dental", "Dermatology", "Travel Medicine"],
-     "insurance": ["Cigna", "BUPA", "MSH", "Aetna", "Allianz", "AXA PPP", "International SOS"],
      "departments": [("Family Medicine", "全科", 5), ("Pediatrics", "儿科", 8),
                      ("Dental", "口腔科", 10), ("Dermatology", "皮肤科", 12),
                      ("Travel Medicine", "旅行医学", 5)],
@@ -403,78 +397,7 @@ URGENT_SYMPTOMS: set[str] = {k for k, v in SYMPTOM_TO_SPECIALTIES.items() if v.g
 
 
 
-# ---- Indoor navigation map (representative hospital layout) --------------
-# 坐标系：viewBox 0 0 1000 600，每个节点放置真实房间中心
-INDOOR_MAP = {
-    "nodes": [
-        # 1 楼 - 主走廊（横向）
-        {"id": "entrance", "label": "Main Entrance / 正门", "floor": 1, "x": 80, "y": 300},
-        {"id": "info", "label": "Information / 咨询台", "floor": 1, "x": 220, "y": 300},
-        {"id": "registration", "label": "Registration / 挂号处", "floor": 1, "x": 360, "y": 300},
-        {"id": "hall", "label": "Central Hall / 中央大厅", "floor": 1, "x": 500, "y": 300},
-        {"id": "elevator", "label": "Elevators / 电梯", "floor": 1, "x": 640, "y": 300},
-        {"id": "cafe", "label": "Café & Shop / 咖啡厅", "floor": 1, "x": 780, "y": 300},
-        {"id": "pharmacy", "label": "Pharmacy / 药房", "floor": 1, "x": 920, "y": 300},
 
-        # 1 楼 - 北区（科室）
-        {"id": "gp", "label": "Family Medicine / 全科", "floor": 1, "x": 220, "y": 130},
-        {"id": "pediatrics", "label": "Pediatrics / 儿科", "floor": 1, "x": 360, "y": 130},
-        {"id": "obgyn", "label": "Obstetrics & Gynecology / 妇产科", "floor": 1, "x": 500, "y": 130},
-        {"id": "emergency", "label": "Emergency / 急诊", "floor": 1, "x": 920, "y": 130},
-
-        # 1 楼 - 南区（辅助科室）
-        {"id": "restroom", "label": "Restroom / 卫生间", "floor": 1, "x": 80, "y": 470},
-        {"id": "lab", "label": "Laboratory / 检验科", "floor": 1, "x": 220, "y": 470},
-        {"id": "imaging", "label": "Imaging (X-Ray/CT/MRI) / 影像科", "floor": 1, "x": 360, "y": 470},
-        {"id": "dental", "label": "Dental / 口腔科", "floor": 1, "x": 500, "y": 470},
-        {"id": "dermatology", "label": "Dermatology / 皮肤科", "floor": 1, "x": 640, "y": 470},
-        {"id": "ent", "label": "ENT (Ear, Nose, Throat) / 耳鼻喉科", "floor": 1, "x": 780, "y": 470},
-
-        # 2 楼（经电梯到达）
-        {"id": "tcm", "label": "Traditional Chinese Medicine / 中医科", "floor": 2, "x": 220, "y": 570},
-        {"id": "mental_health", "label": "Mental Health / 心理科", "floor": 2, "x": 360, "y": 570},
-        {"id": "cardiology", "label": "Cardiology / 心内科", "floor": 2, "x": 500, "y": 570},
-        {"id": "orthopedics", "label": "Orthopedics / 骨科", "floor": 2, "x": 640, "y": 570},
-        {"id": "icu", "label": "ICU / 重症监护", "floor": 2, "x": 920, "y": 570},
-    ],
-    "paths": [
-        # 主走廊（东西向）
-        ("entrance", "info", "Walk straight into the lobby"),
-        ("info", "registration", "Continue east; counter is on your right"),
-        ("registration", "hall", "Central Hall ahead"),
-        ("hall", "elevator", "Elevator bank on the right"),
-        ("elevator", "cafe", "Cafe and convenience store"),
-        ("cafe", "pharmacy", "Pharmacy at the east end"),
-
-        # 北区连接（从主走廊向北）
-        ("registration", "gp", "North wing — turn left to Family Medicine"),
-        ("hall", "pediatrics", "North wing, second wing — Pediatrics"),
-        ("hall", "obgyn", "North wing, third wing — Obstetrics and Gynecology"),
-        ("hall", "emergency", "Walk east along the corridor to the red Emergency zone"),
-
-        # 南区连接（从主走廊向南）
-        ("entrance", "restroom", "Restroom near the west entrance"),
-        ("hall", "lab", "South corridor, first door on left — Laboratory"),
-        ("lab", "imaging", "Imaging suite next to the lab"),
-        ("imaging", "dental", "Continue east along south corridor"),
-        ("dental", "dermatology", "Dermatology next to Dental"),
-        ("dermatology", "ent", "ENT at the end of south corridor"),
-        ("lab", "pharmacy", "Pharmacy is two doors east from the lab"),
-
-        # 2 楼（电梯向上）
-        ("elevator", "tcm", "Take elevator to Floor 2 — Traditional Chinese Medicine"),
-        ("elevator", "mental_health", "Take elevator to Floor 2, left wing — Mental Health"),
-        ("elevator", "cardiology", "Take elevator to Floor 2, center wing — Cardiology"),
-        ("elevator", "orthopedics", "Take elevator to Floor 2, right wing — Orthopedics"),
-        ("elevator", "icu", "Take elevator to Floor 2, restricted east wing — ICU"),
-
-        # 2 楼内部连通
-        ("tcm", "mental_health", "Walk east along the Floor 2 corridor"),
-        ("mental_health", "cardiology", "Continue east on Floor 2"),
-        ("cardiology", "orthopedics", "Next department east on Floor 2"),
-        ("orthopedics", "icu", "East end of Floor 2 — restricted access"),
-    ],
-}
 
 
 # ---- Triage rules: symptom → department + advice + urgency flag ----------
@@ -872,58 +795,7 @@ MEDICATIONS = {
 }
 
 
-# ---- Insurance providers --------------------------------------------------
-INSURANCE_PROVIDERS = [
-    {"name": "Cigna International", "name_zh": "信诺国际",
-     "website": "https://www.cigna.com.hk",
-     "claims_hotline": "+1 (800) 992-0692 / +852 2521-6000",
-     "notes": "Direct billing with most international hospitals in China. Requires pre-authorization for non-emergency admissions.",
-     "notes_zh": "与中国大部分国际医院直付。非急诊入院需预授权。",
-     "coverage_types": ["International health", "Medical evacuation", "Dental", "Mental health"],
-     "in_network_hospitals": ["ufh", "pumch", "bjh", "hku", "raffles", "amcare"]},
-    {"name": "BUPA Global", "name_zh": "保柏国际",
-     "website": "https://www.bupa.com.hk",
-     "claims_hotline": "+852 2510-9133 / +44 (0)1273 323 232",
-     "notes": "One of the most widely accepted international insurers in mainland China hospitals. Direct pay at UFH and most private international clinics.",
-     "notes_zh": "中国大陆医院最广泛接受的国际保险公司之一。和睦家及大部分私立国际诊所直付。",
-     "coverage_types": ["International health", "Medical evacuation", "Cancer care", "Transplant"],
-     "in_network_hospitals": ["ufh", "pumch", "bjh", "hku", "amcare", "raffles"]},
-    {"name": "Aetna International", "name_zh": "安泰国际",
-     "website": "https://www.aetnainternational.com",
-     "claims_hotline": "+1 (860) 273-0231",
-     "notes": "Strong international network. Direct billing at major private hospitals in Beijing and Shanghai.",
-     "notes_zh": "强大的国际网络。北京、上海主要私立医院直付。",
-     "coverage_types": ["International health", "Emergency evacuation"],
-     "in_network_hospitals": ["ufh", "bjh", "hku", "raffles"]},
-    {"name": "Allianz Care (International SOS)", "name_zh": "安联保险（国际SOS）",
-     "website": "https://www.internationalsos.com",
-     "claims_hotline": "+86 10 6462-9100 / +65 6338-8788",
-     "notes": "Integrated with International SOS — excellent emergency and evacuation support across China.",
-     "notes_zh": "与国际SOS整合——在中国境内提供出色的紧急和转运支持。",
-     "coverage_types": ["International health", "Emergency evacuation", "Travel insurance"],
-     "in_network_hospitals": ["ufh", "pumch", "bjh", "raffles"]},
-    {"name": "AXA PPP Healthcare", "name_zh": "安盛天平原生医疗",
-     "website": "https://www.axappphealthcare.co.uk",
-     "claims_hotline": "+44 (0)20 3823 5937",
-     "notes": "UK-based international health insurance. Accepted at UFH, Raffles and select private clinics.",
-     "notes_zh": "英国本土国际医疗保险。和睦家、莱佛士和部分私立诊所接受。",
-     "coverage_types": ["International health"],
-     "in_network_hospitals": ["ufh", "raffles"]},
-    {"name": "Ping An Health Insurance (China domestic)", "name_zh": "平安健康保险（中国本土）",
-     "website": "https://www.pingan.com.cn",
-     "claims_hotline": "+86 400-8833-666",
-     "notes": "China local health insurance. Direct pay at public and some private hospitals. Often required for Chinese employees or expats on local contracts.",
-     "notes_zh": "中国本土健康保险。公立和部分私立医院直付。中国雇员或本地合同外籍人士通常需要。",
-     "coverage_types": ["Inpatient", "Outpatient", "Prescription drugs"],
-     "in_network_hospitals": ["pumch", "bjh", "hku", "amcare"]},
-    {"name": "Now Health International", "name_zh": "诺和健康国际",
-     "website": "https://www.now-health.com",
-     "claims_hotline": "+852 3018 3700",
-     "notes": "Asia-focused international health insurance. Direct pay at most Beijing private international hospitals.",
-     "notes_zh": "以亚洲为重点的国际健康保险。北京大部分私立国际医院直付。",
-     "coverage_types": ["International health", "Dental", "Mental health"],
-     "in_network_hospitals": ["ufh", "amcare", "raffles"]},
-]
+# ---- Insurance providers (removed) ---------------------------------------
 
 
 # ---- Medical terms dictionary (English -> Chinese + Latin) ----------------

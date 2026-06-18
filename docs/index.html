@@ -24,7 +24,6 @@
     <a class="nav-link" data-view="hospitals">Hospitals</a>
     <a class="nav-link" data-view="navigation">Navigation</a>
     <a class="nav-link" data-view="medication">Medication</a>
-    <a class="nav-link" data-view="insurance">Insurance</a>
     <a class="nav-link" data-view="privacy">Privacy</a>
     <a class="nav-link" data-view="profile">My Account</a>
   </nav>
@@ -77,7 +76,7 @@
   <section class="view view-home active" data-view="home">
     <div class="hero">
       <h2>Your cross-cultural medical journey, made simple</h2>
-      <p>From AI multilingual translation with confidence scoring, to smart hospital recommendation, indoor AR-style navigation, medication reminders and insurance claim management — TransMed keeps you in control of every step.</p>
+      <p>From AI multilingual translation with confidence scoring, to smart hospital recommendation, outdoor map navigation, medication reminders and real hospital ratings — TransMed keeps you in control of every step.</p>
       <div class="hero-actions">
         <button class="btn btn-primary" data-go="translate">Start translating</button>
         <button class="btn" data-go="hospitals">Find a hospital</button>
@@ -87,9 +86,7 @@
     <div class="features">
       <div class="feature"><div class="f-title">🎯 AI Medical Translation</div><p>Vertical medical-domain engine with ICD/ATC term alignment. Built-in confidence score with 4-level risk alerts.</p></div>
       <div class="feature"><div class="f-title">🏥 Hospital Recommendation</div><p>Symptom-based ranking across specialties, accepted insurances, wait time and travel distance.</p></div>
-      <div class="feature"><div class="f-title">🧭 Indoor Navigation</div><p>Department-aware BFS routing from the outpatient hall to your consultation room.</p></div>
       <div class="feature"><div class="f-title">💊 Medication Reminders</div><p>Personalized schedules with warnings, side effects and drug interaction info.</p></div>
-      <div class="feature"><div class="f-title">🛡️ Insurance Claims</div><p>Document checklists and workflows for BUPA, Cigna, Ping An & more.</p></div>
       <div class="feature"><div class="f-title">🔒 Privacy by Design</div><p>Data minimization. Anonymized sessions. One-click export or wipe of your personal records.</p></div>
     </div>
     <div class="stats" id="home-stats"></div>
@@ -147,18 +144,6 @@
         <input id="triage-input" type="text" placeholder="e.g. persistent headache and high fever for 2 days" />
       </div>
       <div class="row">
-        <label>Insurance filter:</label>
-        <select id="insurance-filter">
-          <option value="">Any</option>
-          <option>BUPA</option>
-          <option>Cigna</option>
-          <option>Aetna</option>
-          <option>MSH</option>
-          <option>Allianz</option>
-          <option>Ping An</option>
-          <option>International SOS</option>
-          <option>AXA PPP</option>
-        </select>
         <label>Department / Specialty:</label>
         <select id="specialty-filter">
           <option value="">All</option>
@@ -238,38 +223,6 @@
     <div id="med-list" class="med-list">
       <p class="muted">Not signed in or no medication yet.</p>
     </div>
-  </section>
-
-  <!-- 保险 -->
-  <section class="view" data-view="insurance">
-    <h2>Insurance Claims</h2>
-    <p class="muted">Select your provider to see the required documents and recommended workflow.</p>
-    <div class="row">
-      <label>Provider:</label>
-      <select id="ins-provider">
-        <option value="">- Select -</option>
-        <option>BUPA</option>
-        <option>Cigna</option>
-        <option>Ping An</option>
-      </select>
-      <button class="btn btn-primary" id="btn-insurance">Show checklist</button>
-    </div>
-    <div id="ins-result"></div>
-    <h3>My saved claims</h3>
-    <div class="card">
-      <div class="row">
-        <label>New claim — Provider:</label>
-        <input id="claim-provider" type="text" placeholder="e.g. BUPA" />
-        <label>Amount (¥):</label>
-        <input id="claim-amount" type="number" placeholder="0" />
-      </div>
-      <div class="row">
-        <label>Notes:</label>
-        <input id="claim-notes" type="text" placeholder="e.g. Outpatient visit / Beijing Union" />
-        <button class="btn btn-primary" id="btn-add-claim">Save claim</button>
-      </div>
-    </div>
-    <div id="my-claims" class="med-list"></div>
   </section>
 
   <!-- 隐私 -->

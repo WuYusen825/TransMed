@@ -757,6 +757,19 @@ select option {
   font-weight: 700;
   line-height: 1.1;
 }
+.stars {
+  color: #f97316;
+  font-size: 15px;
+  letter-spacing: 1px;
+  margin-right: 6px;
+}
+.review-box {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(249, 115, 22, 0.06);
+  border-left: 3px solid #f97316;
+  border-radius: 4px;
+}
 .rating-label {
   margin-top: 4px;
   line-height: 1.2;

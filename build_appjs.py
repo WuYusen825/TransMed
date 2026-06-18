@@ -261,25 +261,48 @@ JS = r'''/* TransMed frontend logic */
         var addr = h.address || h.address_zh || '';
         var phone = h.phone || '';
         var hours = h.hours || '';
-        var rating = typeof h.rating === 'number' ? h.rating.toFixed(1) : '—';
+        var ratingVal = typeof h.rating === 'number' ? h.rating : (typeof h.rating === 'string' ? parseFloat(h.rating) : null);
+        var rating = ratingVal ? ratingVal.toFixed(1) : '—';
+        var reviewCount = h.review_count || 0;
+        var reviews = h.reviews || [];
+        var firstReview = (reviews && reviews.length) ? reviews[0] : '';
         var specials = (h.specialties || []).slice(0, 5).map(function(s) {
           return '<span class="chip">' + (typeof s === 'string' ? s : (s.name || s)) + '</span>';
         }).join('');
-        var insurances = (h.insurance || []).slice(0, 4).map(function(s) { return '<span class="chip">' + s + '</span>'; }).join('');
         var lngLat = '';
         var hasLoc = (typeof h.lng === 'number' && typeof h.lat === 'number');
         if (hasLoc) lngLat = h.lng + ',' + h.lat;
         var btnAction = hasLoc
           ? '<button class="btn btn-light btn-navigate-here" data-lng="' + h.lng + '" data-lat="' + h.lat + '" data-name="' + (h.name_zh || name).replace(/"/g, '&quot;') + '">📍 导航到这里 / Navigate</button>'
           : '';
+        // 星级
+        var stars = '';
+        if (ratingVal) {
+          var full = Math.floor(ratingVal);
+          var half = ratingVal - full >= 0.5 ? 1 : 0;
+          var empty = 5 - full - half;
+          var starStr = '★'.repeat(full) + (half ? '☆' : '') + '☆'.repeat(empty);
+          stars = '<span class="stars" title="' + rating + ' / 5">' + starStr + '</span>';
+        }
+        // 点评摘要
+        var reviewHtml = '';
+        if (firstReview) {
+          var snippet = firstReview.length > 60 ? firstReview.slice(0, 60) + '…' : firstReview;
+          reviewHtml = '<div class="sub review-box"><span class="muted small" style="font-style:italic;">"'+ snippet +'</span></div>';
+        }
+        var reviewCounter = '';
+        if (reviewCount) {
+          reviewCounter = '<span class="muted small"> · ' + reviewCount + ' 条评价</span>';
+        }
         return '<div class="hospital">' +
           '<div class="hospital-main">' +
           '<div class="hospital-head"><h4>' + name + nameZh + '</h4></div>' +
+          '<div class="sub" style="margin-bottom:6px;">' + stars + reviewCounter + '</div>' +
           (addr ? '<div class="sub">Address / 地址：' + addr + '</div>' : '') +
           (phone ? '<div class="sub">Phone / 电话：' + phone + '</div>' : '') +
           (hours ? '<div class="sub">Hours / 营业：' + hours + '</div>' : '') +
           (specials ? '<div class="chips"><span class="muted small">Specialties / 专科：</span>' + specials + '</div>' : '') +
-          (insurances ? '<div class="chips"><span class="muted small">Insurance / 保险：</span>' + insurances + '</div>' : '') +
+          reviewHtml +
           '</div>' +
           '<div class="hospital-side">' +
           '<div class="rating-badge"><span class="rating-num">' + rating + '</span></div>' +
@@ -306,32 +329,31 @@ JS = r'''/* TransMed frontend logic */
         address: '1 Shuaifuyuan, Dongcheng District, Beijing', address_zh: '东城区帅府园1号',
         phone: '+86 10 6915 6114', hours: '24h Emergency · Outpatient 8:00-17:00', rating: 4.8,
         specialties: ['General Medicine', 'Cardiology', 'Neurology', 'Endocrinology', 'Rheumatology'],
-        insurance: ['Self-pay', 'Social Insurance', 'Ping An', 'Bupa'], languages: ['English', 'Japanese', 'Mandarin'],
+        languages: ['English', 'Japanese', 'Mandarin'],
         lng: 116.4165, lat: 39.9094 },
       { id: 'bjh', name: 'Beijing Hospital', name_zh: '北京医院',
         address: '1 Dongdan Dahua Road, Dongcheng', address_zh: '东城区东单大华路1号',
         phone: '+86 10 8513 2266', hours: '24h Emergency', rating: 4.6,
         specialties: ['Geriatrics', 'Cardiology', 'Neurology', 'Oncology'],
-        insurance: ['Self-pay', 'Social Insurance'], languages: ['Mandarin', 'English'],
+        languages: ['Mandarin', 'English'],
         lng: 116.4151, lat: 39.9038 },
       { id: 'tongren', name: 'Beijing Tongren Hospital', name_zh: '北京同仁医院',
         address: '1 Dongjiaominxiang, Dongcheng', address_zh: '东城区东交民巷1号',
         phone: '+86 10 5826 9988', hours: '24h Emergency', rating: 4.7,
         specialties: ['ENT', 'Ophthalmology', 'General Medicine'],
-        insurance: ['Self-pay', 'Social Insurance', 'Cigna'], languages: ['Mandarin', 'English'],
+        languages: ['Mandarin', 'English'],
         lng: 116.4172, lat: 39.9027 },
       { id: 'ufh', name: 'United Family Hospital', name_zh: '和睦家医院',
         address: '2 Jiangtai Road, Chaoyang', address_zh: '朝阳区将台路2号',
         phone: '+86 10 5927 7000', hours: '24h Emergency & Outpatient', rating: 4.9,
         specialties: ['Family Medicine', 'Pediatrics', 'Emergency', 'OB/GYN', 'Dental'],
-        insurance: ['Bupa', 'Cigna', 'Allianz', 'Self-pay', 'International Insurance'],
         languages: ['English', 'Mandarin', 'Japanese', 'Korean', 'French', 'German'],
         lng: 116.4677, lat: 39.9754 },
       { id: '301', name: '301 Hospital (PLA General Hospital)', name_zh: '解放军总医院',
         address: '28 Fuxing Road, Haidian', address_zh: '海淀区复兴路28号',
         phone: '+86 10 6693 7329', hours: '24h Emergency', rating: 4.7,
         specialties: ['Trauma Surgery', 'Oncology', 'Cardiology', 'Neurology', 'Orthopedics'],
-        insurance: ['Self-pay', 'Social Insurance'], languages: ['Mandarin', 'English'],
+        languages: ['Mandarin', 'English'],
         lng: 116.2875, lat: 39.9067 }
     ];
 
