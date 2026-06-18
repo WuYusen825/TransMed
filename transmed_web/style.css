@@ -704,6 +704,31 @@ select option {
   margin-top: 8px;
   align-items: center;
 }
+.hospital-recommendation {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  background: rgba(249, 115, 22, 0.05);
+  border-radius: var(--radius-sm);
+}
+.hospital-recommendation .rec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.hospital-recommendation .rec-badge {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.hospital-recommendation .rec-score {
+  font-size: 13px;
+  color: var(--text-soft);
+}
 .hospital-side {
   display: flex;
   flex-direction: column;

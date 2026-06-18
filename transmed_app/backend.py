@@ -46,7 +46,8 @@ from .translator import translate as do_translate, translate_with_rag, risk_leve
 from .auth import (hash_password, verify_password, create_jwt,
                    decode_jwt, require_current_user, get_current_user_optional)
 from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
-                   MEDICATIONS, INSURANCE_PROVIDERS, INDOOR_MAP)
+                   MEDICATIONS, INSURANCE_PROVIDERS, INDOOR_MAP,
+                   SYMPTOM_TO_SPECIALTIES, SPECIALTY_ALIASES, HOSPITAL_STRENGTH)
 from . import amap as _amap
 
 # ------------------------------------------------------------------ initialise DB
@@ -426,52 +427,302 @@ def confirm_translation(log_id: int, current_user=Depends(require_current_user),
     return {"ok": True, "id": log.id, "confirmed": True}
 
 
-# -------------------------------------------------------------- triage
+# ============================================================================
+# 推荐引擎辅助函数
+# ============================================================================
+def _hospital_specialty_canonical(text: str) -> Optional[str]:
+    """Return canonical specialty name if text matches any alias. Case-insensitive."""
+    if not text:
+        return None
+    t = text.strip().lower()
+    for canonical, aliases in SPECIALTY_ALIASES.items():
+        if t == canonical.lower():
+            return canonical
+    for canonical, aliases in SPECIALTY_ALIASES.items():
+        for alias in aliases:
+            if t == alias.lower():
+                return canonical
+    # substring fallback (slower): scan all aliases for substring
+    for canonical, aliases in SPECIALTY_ALIASES.items():
+        for alias in aliases:
+            alias_l = alias.lower()
+            if alias_l and (alias_l in text or text in alias_l):
+                return canonical
+    return None
+
+
+def _parse_symptoms_to_specialty_scores(text: str) -> dict[str, float]:
+    """Parse symptoms text → {canonical_specialty: score}.
+
+    Algorithm:
+      - Iterate over SYMPTOM_TO_SPECIALTIES keys.
+      - For each keyword found add weight.
+      - Return aggregated score per specialty.
+    """
+    if not text:
+        return {}
+    t = text.lower()
+    scores: dict[str, float] = {}
+    matched_symptoms: List[str] = []
+    for key, info in SYMPTOM_TO_SPECIALTIES.items():
+        if key in t:
+            matched_symptoms.append(key)
+            w = float(info.get("weight", 50))
+            for sp in info.get("specialties", []):
+                scores[sp] = scores.get(sp, 0.0) + w
+    return scores
+
+
+# Keywords in hospital name → specialty boost. If any token appears in hospital
+# name/zh-name, treat hospital as having that specialty with the given score.
+_HOSPITAL_KEYWORD_TO_SPECIALTY: dict[str, list[tuple[str, float]]] = {
+    "obstetrics": [("Obstetrics & Gynecology", 90.0), ("Gynecology", 85.0), ("Pediatrics", 70.0)],
+    "gynecology": [("Obstetrics & Gynecology", 90.0), ("Gynecology", 85.0)],
+    "妇产科": [("Obstetrics & Gynecology", 90.0), ("Gynecology", 85.0), ("Pediatrics", 70.0)],
+    "妇产": [("Obstetrics & Gynecology", 85.0), ("Gynecology", 80.0)],
+    "maternity": [("Obstetrics & Gynecology", 85.0), ("Gynecology", 80.0)],
+    "child": [("Pediatrics", 90.0), ("Pediatric Surgery", 75.0)],
+    "children": [("Pediatrics", 90.0), ("Pediatric Surgery", 75.0)],
+    "pediatric": [("Pediatrics", 90.0), ("Pediatric Surgery", 75.0)],
+    "儿科": [("Pediatrics", 90.0), ("Pediatric Surgery", 70.0)],
+    "儿研": [("Pediatrics", 90.0)],
+    "stomatology": [("Dental", 95.0)],
+    "dental": [("Dental", 90.0), ("Oral Surgery", 85.0)],
+    "口腔": [("Dental", 95.0), ("Oral Surgery", 85.0)],
+    "tooth": [("Dental", 80.0)],
+    "tongrentang": [("Traditional Chinese Medicine", 90.0), ("Internal Medicine", 60.0), ("Dermatology", 65.0)],
+    "同仁堂": [("Traditional Chinese Medicine", 90.0), ("Internal Medicine", 65.0), ("Dermatology", 65.0)],
+    "中医": [("Traditional Chinese Medicine", 90.0), ("Internal Medicine", 60.0)],
+    "traditional chinese": [("Traditional Chinese Medicine", 90.0)],
+    "ophthalmology": [("Ophthalmology", 95.0)],
+    "eye hospital": [("Ophthalmology", 90.0)],
+    "同仁": [("Ophthalmology", 95.0), ("ENT", 90.0)],
+    "tongren": [("Ophthalmology", 90.0), ("ENT", 85.0)],
+    "ent": [("ENT", 90.0)],
+    "耳鼻喉": [("ENT", 90.0)],
+    "cancer": [("Oncology", 95.0), ("Surgical Oncology", 85.0)],
+    "肿瘤": [("Oncology", 95.0), ("Surgical Oncology", 85.0)],
+    "fuwai": [("Cardiology", 95.0), ("Cardiovascular Surgery", 90.0), ("Emergency", 80.0)],
+    "阜外": [("Cardiology", 95.0), ("Cardiovascular Surgery", 90.0), ("Emergency", 80.0)],
+    "心脏": [("Cardiology", 90.0), ("Cardiovascular Surgery", 85.0)],
+    "心血管": [("Cardiology", 90.0), ("Cardiovascular Surgery", 85.0)],
+    "tiantan": [("Neurology", 95.0), ("Neurosurgery", 90.0)],
+    "天坛": [("Neurology", 95.0), ("Neurosurgery", 90.0)],
+    "神经": [("Neurology", 85.0), ("Neurosurgery", 80.0)],
+    "union medical": [("Internal Medicine", 90.0), ("Cardiology", 90.0), ("Neurology", 95.0), ("Pediatrics", 75.0), ("Oncology", 90.0), ("Emergency", 90.0)],
+    "协和": [("Internal Medicine", 90.0), ("Cardiology", 90.0), ("Neurology", 90.0), ("Pediatrics", 75.0), ("Oncology", 90.0), ("Emergency", 90.0), ("Endocrinology", 85.0), ("Rheumatology", 75.0)],
+    "peking union": [("Internal Medicine", 90.0), ("Cardiology", 90.0), ("Neurology", 95.0), ("Oncology", 90.0), ("Emergency", 90.0)],
+    "beijing hospital": [("Geriatrics", 95.0), ("Cardiology", 85.0), ("Endocrinology", 90.0), ("Internal Medicine", 90.0), ("Neurology", 80.0)],
+    "北京医院": [("Geriatrics", 95.0), ("Cardiology", 85.0), ("Endocrinology", 90.0), ("Internal Medicine", 90.0), ("Neurology", 80.0)],
+    "中日": [("Respiratory", 85.0), ("Internal Medicine", 80.0), ("Cardiology", 75.0)],
+    "china-japan": [("Pulmonary / Respiratory", 85.0), ("Internal Medicine", 80.0), ("Cardiology", 75.0)],
+    "第三医院": [("Orthopedics", 95.0), ("Sports Medicine", 85.0), ("Cardiology", 75.0), ("Ophthalmology", 70.0)],
+    "北医三院": [("Orthopedics", 95.0), ("Sports Medicine", 85.0)],
+    "pku 3rd": [("Orthopedics", 95.0), ("Sports Medicine", 85.0)],
+    "people's hospital": [("Internal Medicine", 85.0), ("Cardiology", 80.0), ("Hematology", 75.0)],
+    "人民医院": [("Internal Medicine", 85.0), ("Cardiology", 80.0), ("Hematology", 75.0)],
+    "first hospital": [("Internal Medicine", 85.0), ("General Surgery", 80.0), ("Cardiology", 75.0)],
+    "骨科": [("Orthopedics", 90.0)],
+    "皮肤": [("Dermatology", 90.0)],
+    "psychiatric": [("Mental Health / Psychiatry", 90.0)],
+    "精神": [("Mental Health / Psychiatry", 90.0)],
+}
+
+
+def _hospital_has_specialty(hospital: dict, canonical_specialty: str) -> float:
+    """Return 'match strength' (0-100) of a hospital for a canonical specialty."""
+    hid = hospital.get("id", "") or ""
+    name = (hospital.get("name") or "") + " " + (hospital.get("name_zh") or "")
+    name_l = name.lower()
+
+    if hid and hid in HOSPITAL_STRENGTH:
+        strength = HOSPITAL_STRENGTH.get(hid, {})
+        if canonical_specialty in strength:
+            return float(strength[canonical_specialty])
+
+    # keyword → specialty direct map
+    kw_scores: list[float] = []
+    for keyword, tuples in _HOSPITAL_KEYWORD_TO_SPECIALTY.items():
+        if keyword and keyword in name_l:
+            for sp, score in tuples:
+                if sp == canonical_specialty:
+                    kw_scores.append(score)
+    if kw_scores:
+        return float(max(kw_scores))
+
+    sp_list = [s for s in hospital.get("specialties", [])]
+    dept_list = []
+    for d in hospital.get("departments", []):
+        if isinstance(d, (tuple, list)) and len(d) >= 2:
+            dept_list.append(str(d[0]))
+        elif isinstance(d, dict):
+            dept_list.append(str(d.get("name", "")))
+
+    aliases = SPECIALTY_ALIASES.get(canonical_specialty, [])
+    aliases_lower = [a.lower() for a in aliases]
+    candidate_names = [canonical_specialty.lower()] + aliases_lower
+    found: List[str] = []
+    for sp in sp_list + dept_list:
+        if not isinstance(sp, str):
+            continue
+        sp_l = sp.lower()
+        if sp_l in candidate_names:
+            found.append(sp)
+            continue
+        for alias_l in aliases_lower:
+            if alias_l and (sp_l == alias_l or alias_l in sp_l or sp_l in alias_l):
+                found.append(sp)
+                break
+    if found:
+        return 60.0
+    return 10.0
+
+
+def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], insurance: str = "", language: str = "", urgent: bool = False) -> dict:
+    """Calculate aggregate recommendation score + list of reasons for hospital.
+    Returns {"score": float, "reasons": List[str], "matched_specialties": List[str], "matched_insurance": bool, "matched_language": bool}"""
+    reasons: List[str] = []
+    specialty_score_sum = 0.0
+    matched_specialties: List[str] = []
+    for sp, weight in specialty_scores.items():
+        strength = _hospital_has_specialty(hospital, sp)
+        if strength > 15:
+            matched_specialty_score = (strength * (weight / 100.0))
+            specialty_score_sum += matched_specialty_score
+            matched_specialties.append(sp)
+            reasons.append(f"{sp}: specialty score {round(strength)} match with your symptoms")
+
+    # Rating: 0-5 scale → normalized to 0-40 points of score
+    _r = hospital.get("rating")
+    try:
+        rating = float(_r) if _r is not None else 0.0
+    except (TypeError, ValueError):
+        rating = 0.0
+    rating_score = rating * 8.0
+
+    # distance penalty: shorter better
+    _d = hospital.get("distance_km")
+    try:
+        distance_km = float(_d) if _d is not None else 10.0
+    except (TypeError, ValueError):
+        distance_km = 10.0
+    distance_score = max(0.0, 40.0 - distance_km * 2.0)
+
+    # wait minutes: less wait, better
+    _w = hospital.get("wait_minutes")
+    try:
+        wait_min = float(_w) if _w is not None else 30.0
+    except (TypeError, ValueError):
+        wait_min = 30.0
+    wait_score = max(0.0, 30.0 - wait_min)
+
+    # insurance filter & language filter
+    matched_insurance = False
+    matched_language = False
+    if insurance and insurance.strip():
+        insurance_ins = [i.strip() for i in hospital.get("insurance", [])]
+        if insurance.lower() in [i.lower() for i in insurance_ins]:
+            matched_insurance = True
+    if language and language.strip():
+        langs = [l.strip() for l in hospital.get("languages", [])]
+        if language.lower() in [l.lower() for l in langs]:
+            matched_language = True
+
+    total = specialty_score_sum + rating_score + distance_score + wait_score
+    if matched_insurance:
+        total += 15
+        reasons.append("Accepts your insurance")
+    if matched_language:
+        total += 10
+        reasons.append("Speaks your language")
+    if urgent:
+        emergency_strength = _hospital_has_specialty(hospital, "Emergency")
+        if emergency_strength > 15:
+            total += 20
+            reasons.append("Has strong emergency services")
+        else:
+            total -= 10
+
+    return {
+        "score": round(total, 2),
+        "specialty_score": round(specialty_score_sum, 2),
+        "rating_score": round(rating_score, 2),
+        "distance_score": round(distance_score, 2),
+        "wait_score": round(wait_score, 2),
+        "reasons": reasons[:5],
+        "matched_specialties": matched_specialties,
+        "matched_insurance": matched_insurance,
+        "matched_language": matched_language,
+    }
+
+
+# -------------------------------------------------------------- triage (new)
+def _triage_core(text: str) -> TriageOut:
+    """Pure triage logic — returns a TriageOut without touching DB/headers."""
+    text = (text or "").strip()
+    if not text:
+        raise HTTPException(400, "symptoms are required")
+    text_l = text.lower()
+
+    specialty_scores: Dict[str, float] = {}
+    matched: List[str] = []
+    is_urgent = False
+    for key, info in SYMPTOM_TO_SPECIALTIES.items():
+        if key in text_l:
+            matched.append(key)
+            w = float(info.get("weight", 50))
+            is_urgent = is_urgent or bool(info.get("urgent"))
+            for sp in info.get("specialties", []):
+                specialty_scores[sp] = specialty_scores.get(sp, 0.0) + w
+
+    ranked = sorted(specialty_scores.items(), key=lambda kv: kv[1], reverse=True)
+    if ranked:
+        best_dep_en = ranked[0][0]
+        best_dep_zh = ""
+        for alias in SPECIALTY_ALIASES.get(best_dep_en, []):
+            if any(ord(ch) > 127 for ch in alias):
+                best_dep_zh = alias
+                break
+        top3 = [r[0] for r in ranked[:3]]
+        matched_display = ", ".join(matched[:5]) or "unspecified"
+        also = ", ".join(top3[1:3]) if len(top3) > 1 else "general practice"
+        rec_en = (f"Based on your symptoms ({matched_display}), "
+                   f"the recommended department is: {best_dep_en}. "
+                   f"Also consider: {also}. "
+                   f"If symptoms worsen, please consult a professional immediately.")
+        rec_zh = f"根据您描述的症状 ({matched_display})，建议科室：{best_dep_en}（{best_dep_zh}）"
+        return TriageOut(department_en=best_dep_en, department_zh=best_dep_zh,
+                         recommendation_en=rec_en, recommendation_zh=rec_zh,
+                         urgent=is_urgent, matched_symptoms=matched)
+
+    best_dep_en, best_dep_zh = "General Medicine / Family Practice", "全科 / 内科"
+    rec_en = ("No specific department could be identified from your keywords. "
+               "Please consult a general practitioner or contact our support for a "
+               "more detailed assessment.")
+    rec_zh = ("根据您输入的关键词未能识别具体科室。建议咨询全科医生，或联系我们的客服 "
+               "进行更详细的评估。")
+    return TriageOut(department_en=best_dep_en, department_zh=best_dep_zh,
+                     recommendation_en=rec_en, recommendation_zh=rec_zh,
+                     urgent=False, matched_symptoms=matched)
+
+
 @app.post("/api/triage", response_model=TriageOut)
 def triage(body: TriageIn,
            auth: Optional[str] = Header(default=None, alias="Authorization"),
            db=Depends(get_db)):
-    text = body.symptoms.lower().strip()
-    if not text:
-        raise HTTPException(400, "symptoms are required")
+    result = _triage_core(body.symptoms)
 
-    matched: List[str] = []
-    best_dep_en, best_dep_zh = "General Medicine / Family Practice", "全科 / 内科"
-    best_rec_en, best_rec_zh = ("Your symptoms are general. It's recommended to see a family "
-                                  "medicine doctor or general practitioner.",
-                                 "您的症状比较普遍。建议看全科或内科医生。")
-    is_urgent = any(w in text for w in URGENT_SYMPTOMS)
-    # check rule by rule
-    for key, (dep_en, dep_zh, rec_en, rec_zh, urgent) in TRIAGE_RULES.items():
-        if key in text:
-            matched.append(key)
-            # only set if no earlier (more urgent) match or if this matches specifically
-            if urgent or not matched:
-                best_dep_en, best_dep_zh = dep_en, dep_zh
-                best_rec_en, best_rec_zh = rec_en, rec_zh
-            is_urgent = is_urgent or urgent
-
-    if not matched:
-        best_rec_en = ("No specific department could be identified from your keywords. "
-                        "Please consult a general practitioner or contact our support for a "
-                        "more detailed assessment.")
-        best_rec_zh = ("根据您输入的关键词未能识别具体科室。建议咨询全科医生，或联系我们的客服 "
-                        "进行更详细的评估。")
-
-    result = TriageOut(department_en=best_dep_en, department_zh=best_dep_zh,
-                       recommendation_en=best_rec_en, recommendation_zh=best_rec_zh,
-                       urgent=is_urgent, matched_symptoms=matched)
-
-    # 如果用户已登录，自动保存分诊记录
+    # save record if signed-in user
     uid = None
-    if auth and auth.lower().startswith("bearer "):
+    auth_str = auth if isinstance(auth, str) else None
+    if auth_str and auth_str.lower().startswith("bearer "):
         try:
-            token = auth.split(" ", 1)[1].strip()
+            token = auth_str.split(" ", 1)[1].strip()
             payload = decode_jwt(token)
             uid = int(payload["sub"])
         except Exception:
             uid = None
-    if uid:
+    if uid and db is not None:
         try:
             rec = models.TriageRecord(user_id=uid, symptoms=body.symptoms,
                                       department_en=result.department_en,
@@ -484,7 +735,7 @@ def triage(body: TriageIn,
     return result
 
 
-# -------------------------------------------------------------- hospitals
+# -------------------------------------------------------------- hospitals (enhanced)
 @app.get("/api/hospitals")
 def hospitals_list(keyword: Optional[str] = "",
                    city: Optional[str] = "北京",
@@ -492,32 +743,136 @@ def hospitals_list(keyword: Optional[str] = "",
                    insurance: Optional[str] = None,
                    language: Optional[str] = None,
                    urgent: bool = False,
+                   symptom: Optional[str] = None,
                    max_wait: Optional[int] = None,
                    min_rating: Optional[float] = None,
                    limit: int = 20):
-    """医院列表。优先使用高德 POI 搜索（真实数据），无 key 时回退到本地 demo。"""
+    """医院列表。优先使用高德 POI 搜索（真实数据），无 key 时回退到本地 demo。
+
+    新特性：`symptom` 会启动基于症状→专科→医院优势的推荐评分，返回 `recommendation` 字段。
+    """
     result = _amap.search_hospitals(keyword=keyword or "", city=city or "北京", limit=limit)
     hospitals = result.get("hospitals", [])
-    # 本地过滤（高德不支持 specialty/insurance 等字段）
-    if specialty:
-        hospitals = [h for h in hospitals if
-                     specialty.lower() in " ".join([str(s).lower() for s in h.get("specialties", [])]) or
-                     specialty.lower() in str(h.get("name", "")).lower()]
-    if insurance:
-        hospitals = [h for h in hospitals if insurance in h.get("insurance", [])]
-    if language:
-        hospitals = [h for h in hospitals if
-                     language in h.get("languages", []) or
-                     language.lower() in [l.lower() for l in h.get("languages", [])]]
-    if urgent:
-        hospitals = [h for h in hospitals if h.get("wait_minutes", 999) <= 30]
-    if max_wait is not None:
-        hospitals = [h for h in hospitals if h.get("wait_minutes", 0) <= max_wait]
-    if min_rating is not None:
-        hospitals = [h for h in hospitals if (h.get("rating") or 0) >= min_rating]
-    return {"hospitals": hospitals, "count": len(hospitals),
+
+    # ---- 基于症状计算专科权重
+    specialty_scores: dict[str, float] = {}
+    if symptom and symptom.strip():
+        specialty_scores = _parse_symptoms_to_specialty_scores(symptom)
+        # 若 symptom 有意义且用户同时传入 specialty，则也将它加入加权
+        if specialty and specialty.strip():
+            canonical = _hospital_specialty_canonical(specialty) or specialty
+            specialty_scores[canonical] = specialty_scores.get(canonical, 0.0) + 80.0
+    elif specialty and specialty.strip():
+        # explicit specialty filter
+        canonical = _hospital_specialty_canonical(specialty) or specialty
+        specialty_scores[canonical] = 100.0
+
+    # --- 过滤
+    filtered = []
+    for h in hospitals:
+        # specialty/insurance/language filter
+        if specialty and specialty.strip():
+            haystack = " ".join([str(s).lower() for s in (h.get("specialties") or [])])
+            if specialty.lower() not in haystack and specialty.lower() not in str(h.get("name", "")).lower():
+                continue
+        if insurance:
+            if insurance not in (h.get("insurance") or []):
+                continue
+        if language:
+            langs = h.get("languages") or []
+            if language not in langs and language.lower() not in [l.lower() for l in langs]:
+                continue
+        if urgent and (h.get("wait_minutes", 999) or 999) > 30:
+            continue
+        if max_wait is not None and (h.get("wait_minutes", 0) or 0) > max_wait:
+            continue
+        if min_rating is not None and (h.get("rating") or 0) < min_rating:
+            continue
+        filtered.append(h)
+
+    # --- 推荐评分（若有症状或专科则排序）
+    enriched = []
+    if specialty_scores:
+        scored_h = []
+        for h in filtered:
+            rec = _recommendation_score(h, specialty_scores, insurance=insurance or "", language=language or "", urgent=urgent)
+            h_copy = dict(h)
+            h_copy["recommendation"] = rec
+            scored_h.append((h_copy, rec["score"]))
+        scored_h.sort(key=lambda pair: pair[1], reverse=True)
+        enriched = [h for h, _ in scored_h]
+    else:
+        # 无特殊评分，则按 rating 排序
+        enriched = sorted(filtered, key=lambda h: float(h.get("rating") or 0), reverse=True)
+
+    return {"hospitals": enriched, "count": len(enriched),
             "data_source": result.get("data_source", "demo"),
-            "city": result.get("city")}
+            "city": result.get("city"),
+            "symptom": symptom, "specialty_scores": specialty_scores}
+
+
+# -------------------------------------------------------------- 智能推荐：POST 版本
+class RecommendationIn(BaseModel):
+    symptoms: str
+    city: str = "北京"
+    insurance: Optional[str] = None
+    language: Optional[str] = None
+    max_wait: Optional[int] = None
+    specialty_override: Optional[str] = None
+    limit: int = 10
+
+
+@app.post("/api/recommendations")
+def recommendations_api(body: RecommendationIn):
+    """根据症状 → 专科 → 医院优势进行推荐。
+    返回: triage_result + hospitals (按推荐分排序，含匹配理由)
+    """
+    text = body.symptoms.strip()
+    if not text:
+        raise HTTPException(400, "symptoms are required")
+
+    # 分诊
+    triage_out = _triage_core(text)
+
+    # 专科分数（symptom → specialty score map）
+    specialty_scores = _parse_symptoms_to_specialty_scores(text)
+    if body.specialty_override and body.specialty_override.strip():
+        canonical = _hospital_specialty_canonical(body.specialty_override) or body.specialty_override
+        specialty_scores[canonical] = specialty_scores.get(canonical, 0.0) + 120.0
+
+    # 获取医院列表
+    hospitals_result = _amap.search_hospitals(keyword="", city=body.city or "北京", limit=max(20, body.limit * 2))
+    hospitals = hospitals_result.get("hospitals", [])
+
+    scored_h = []
+    for h in hospitals:
+        rec = _recommendation_score(
+            h, specialty_scores,
+            insurance=body.insurance or "",
+            language=body.language or "",
+            urgent=triage_out.urgent,
+        )
+        h_copy = dict(h)
+        h_copy["recommendation"] = rec
+        scored_h.append((h_copy, rec["score"]))
+    scored_h.sort(key=lambda pair: pair[1], reverse=True)
+    ranked = [h for h, _ in scored_h[: body.limit]]
+
+    return {
+        "triage": {
+            "department_en": triage_out.department_en,
+            "department_zh": triage_out.department_zh,
+            "recommendation_en": triage_out.recommendation_en,
+            "recommendation_zh": triage_out.recommendation_zh,
+            "urgent": triage_out.urgent,
+            "matched_symptoms": triage_out.matched_symptoms,
+        },
+        "specialty_scores": specialty_scores,
+        "hospitals": ranked,
+        "count": len(ranked),
+        "data_source": hospitals_result.get("data_source", "demo"),
+        "city": body.city,
+    }
 
 
 @app.get("/api/hospitals/{hospital_id}")

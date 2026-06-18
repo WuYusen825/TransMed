@@ -68,6 +68,341 @@ HOSPITALS = [
 ]
 
 
+# ============================================================================
+# Specialty keyword mapping: maps English/Chinese aliases → canonical specialty.
+# Used by both triage (symptom → dept) and recommendation (symptom → hospital).
+# ============================================================================
+SPECIALTY_ALIASES: dict[str, list[str]] = {
+    "Internal Medicine": [
+        "internal medicine", "general internal medicine", "internal med",
+        "内科", "普通内科", "内科学", "general medicine", "medicine"],
+    "Family Medicine": [
+        "family medicine", "family practice", "family doctor", "general practice",
+        "全科", "全科医学", "家庭医学", "gp", "primary care"],
+    "Cardiology": [
+        "cardiology", "cardiac", "heart", "cardiovascular",
+        "心内科", "心脏内科", "心脏科", "心血管"],
+    "Neurology": [
+        "neurology", "neurological", "brain", "nervous system",
+        "神经内科", "神经科", "脑科"],
+    "Pediatrics": [
+        "pediatrics", "pediatric", "paediatrics", "child", "children", "baby", "infant", "toddler", "kid",
+        "儿科", "小儿科", "儿童医学"],
+    "Pediatric Surgery": [
+        "pediatric surgery", "paediatric surgery", "小儿外科", "儿童外科"],
+    "Oncology": [
+        "oncology", "cancer", "tumor", "tumour", "chemotherapy",
+        "肿瘤科", "肿瘤学", "癌症"],
+    "Obstetrics & Gynecology": [
+        "obstetrics", "gynecology", "gynaecology", "obstetrics and gynecology", "ob-gyn", "obgyn", "ob/gyn",
+        "pregnancy", "prenatal", "antenatal", "labor", "delivery",
+        "妇产科", "产科", "妇科", "产科医学"],
+    "Gynecology": [
+        "gynecology", "gynaecology", "妇科", "妇女保健"],
+    "Geriatrics": [
+        "geriatrics", "geriatric", "elderly", "senior", "old age", "aging",
+        "老年医学", "老年科", "老年病科"],
+    "Endocrinology": [
+        "endocrinology", "endocrine", "diabetes", "thyroid", "hormone", "hormonal",
+        "内分泌科", "内分泌"],
+    "Pulmonary / Respiratory": [
+        "pulmonary", "respiratory", "respiration", "lung", "pulmonology", "respirology", "copd", "asthma",
+        "呼吸内科", "呼吸科", "肺科", "肺病科"],
+    "Gastroenterology": [
+        "gastroenterology", "gastrointestinal", "gi", "stomach", "gastric", "intestine", "bowel", "colon", "liver", "hepatology", "digestive",
+        "消化内科", "消化科", "胃肠科", "肝病科"],
+    "Orthopedics": [
+        "orthopedics", "orthopaedics", "orthopedic", "orthopaedic", "bone", "skeletal", "joint", "musculoskeletal",
+        "骨科", "矫形外科", "骨伤科"],
+    "Rheumatology": [
+        "rheumatology", "rheumatic", "arthritis", "rheumatism",
+        "风湿免疫科", "风湿科"],
+    "Dental": [
+        "dental", "dentistry", "dentist", "tooth", "teeth", "oral", "mouth",
+        "口腔科", "牙科", "口腔医学"],
+    "Dermatology": [
+        "dermatology", "dermatological", "skin",
+        "皮肤科", "皮肤医学"],
+    "Ophthalmology": [
+        "ophthalmology", "eye", "vision", "visual", "ocular",
+        "眼科", "眼科学"],
+    "ENT": [
+        "ent", "otolaryngology", "otorhinolaryngology", "ear nose throat", "ear, nose and throat",
+        "ear", "nose", "throat", "sinus", "larynx", "pharynx",
+        "耳鼻喉科", "耳鼻咽喉科", "五官科"],
+    "Urology": [
+        "urology", "urological", "urinary", "bladder", "kidney", "urine",
+        "泌尿外科", "泌尿科"],
+    "Nephrology": [
+        "nephrology", "renal", "kidney",
+        "肾内科", "肾脏科"],
+    "Allergy & Immunology": [
+        "allergy", "allergic", "allergy and immunology", "immunology", "hypersensitivity",
+        "变态反应科", "过敏科", "免疫科"],
+    "Infectious Diseases": [
+        "infectious disease", "infectious diseases", "infection", "infective",
+        "感染科", "传染病科"],
+    "Mental Health / Psychiatry": [
+        "mental health", "psychiatry", "psychiatric", "psychological", "psychology", "psychotherapist",
+        "depression", "anxiety", "stress", "panic", "psychologist",
+        "心理科", "精神科", "心理医学科", "心理咨询", "精神病学"],
+    "Physiotherapy / Rehabilitation": [
+        "physiotherapy", "physical therapy", "physical medicine", "rehabilitation", "rehab",
+        "康复理疗科", "康复医学科", "理疗科"],
+    "Emergency": [
+        "emergency", "emergency medicine", "er", "icu", "critical care", "trauma", "accident",
+        "急诊", "急诊科", "急诊医学科", "重症医学", "重症监护"],
+    "Plastic Surgery": [
+        "plastic surgery", "plastic and reconstructive", "reconstructive", "cosmetic",
+        "整形外科", "整形科"],
+    "Travel Medicine": [
+        "travel medicine", "travel health", "travel clinic", "traveler",
+        "旅行医学", "旅行健康"],
+    "Traditional Chinese Medicine": [
+        "traditional chinese medicine", "tcm", "chinese medicine", "herbal medicine",
+        "acupuncture", "herbal",
+        "中医", "中医科", "中医内科", "中药", "针灸", "传统医学"],
+    "Hematology": [
+        "hematology", "blood", "hematologist",
+        "血液科", "血液内科"],
+    "Sports Medicine": [
+        "sports medicine", "sports injury", "sport medicine",
+        "运动医学", "运动医学科"],
+    "Cardiovascular Surgery": [
+        "cardiovascular surgery", "cardiac surgery", "heart surgery",
+        "心脏外科", "心血管外科"],
+    "General Surgery": [
+        "general surgery", "surgery", "surgical",
+        "外科", "普通外科", "普外科"],
+    "Neurosurgery": [
+        "neurosurgery", "neuro surgery", "brain surgery",
+        "神经外科", "脑外科"],
+    "Oral Surgery": [
+        "oral surgery", "oral maxillofacial",
+        "口腔外科", "口腔颌面外科"],
+    "Surgical Oncology": [
+        "surgical oncology", "cancer surgery",
+        "肿瘤外科"],
+}
+
+
+# ---------------------------------------------------------------------------
+# Symptom → specialty mapping: lists of keywords (en/zh) that signal each specialty.
+# Order matters: first match has highest priority (but all contribute score).
+# ---------------------------------------------------------------------------
+SYMPTOM_TO_SPECIALTIES: dict[str, dict] = {
+    # -- Cardiovascular --
+    "chest pain": {"specialties": ["Cardiology", "Emergency"], "weight": 100, "urgent": True},
+    "heart attack": {"specialties": ["Cardiology", "Emergency"], "weight": 150, "urgent": True},
+    "myocardial infarction": {"specialties": ["Cardiology", "Emergency"], "weight": 150, "urgent": True},
+    "palpitations": {"specialties": ["Cardiology"], "weight": 60, "urgent": False},
+    "heart racing": {"specialties": ["Cardiology"], "weight": 55, "urgent": False},
+    "high blood pressure": {"specialties": ["Cardiology", "Internal Medicine"], "weight": 80, "urgent": False},
+    "hypertension": {"specialties": ["Cardiology", "Internal Medicine"], "weight": 80, "urgent": False},
+    "low blood pressure": {"specialties": ["Cardiology", "Internal Medicine"], "weight": 60, "urgent": False},
+    "hypotension": {"specialties": ["Cardiology", "Internal Medicine"], "weight": 60, "urgent": False},
+    "shortness of breath": {"specialties": ["Pulmonary / Respiratory", "Cardiology", "Emergency"], "weight": 120, "urgent": True},
+    "difficulty breathing": {"specialties": ["Pulmonary / Respiratory", "Emergency"], "weight": 110, "urgent": True},
+    "wheezing": {"specialties": ["Pulmonary / Respiratory"], "weight": 90, "urgent": False},
+    # -- Respiratory --
+    "cough": {"specialties": ["Pulmonary / Respiratory", "Internal Medicine", "Family Medicine"], "weight": 70, "urgent": False},
+    "asthma": {"specialties": ["Pulmonary / Respiratory"], "weight": 90, "urgent": False},
+    "sputum": {"specialties": ["Pulmonary / Respiratory"], "weight": 60, "urgent": False},
+    "phlegm": {"specialties": ["Pulmonary / Respiratory"], "weight": 55, "urgent": False},
+    "pneumonia": {"specialties": ["Pulmonary / Respiratory", "Emergency"], "weight": 110, "urgent": True},
+    "bronchitis": {"specialties": ["Pulmonary / Respiratory", "Internal Medicine"], "weight": 80, "urgent": False},
+    "tuberculosis": {"specialties": ["Pulmonary / Respiratory", "Infectious Diseases"], "weight": 100, "urgent": False},
+    # -- Neurology --
+    "headache": {"specialties": ["Neurology", "Internal Medicine", "Family Medicine"], "weight": 65, "urgent": False},
+    "migraine": {"specialties": ["Neurology"], "weight": 90, "urgent": False},
+    "dizziness": {"specialties": ["Neurology", "ENT", "Cardiology"], "weight": 70, "urgent": False},
+    "vertigo": {"specialties": ["Neurology", "ENT"], "weight": 85, "urgent": False},
+    "stroke": {"specialties": ["Neurology", "Emergency"], "weight": 180, "urgent": True},
+    "seizure": {"specialties": ["Neurology", "Emergency"], "weight": 150, "urgent": True},
+    "epilepsy": {"specialties": ["Neurology"], "weight": 100, "urgent": False},
+    "fainting": {"specialties": ["Neurology", "Cardiology", "Emergency"], "weight": 120, "urgent": True},
+    "syncope": {"specialties": ["Neurology", "Cardiology"], "weight": 100, "urgent": True},
+    "numbness": {"specialties": ["Neurology", "Orthopedics"], "weight": 60, "urgent": False},
+    "tingling": {"specialties": ["Neurology"], "weight": 50, "urgent": False},
+    # -- Gastrointestinal --
+    "stomach pain": {"specialties": ["Gastroenterology", "Internal Medicine", "Family Medicine"], "weight": 70, "urgent": False},
+    "abdominal pain": {"specialties": ["Gastroenterology", "Internal Medicine"], "weight": 75, "urgent": False},
+    "diarrhea": {"specialties": ["Gastroenterology", "Infectious Diseases"], "weight": 70, "urgent": False},
+    "diarrhoea": {"specialties": ["Gastroenterology"], "weight": 65, "urgent": False},
+    "nausea": {"specialties": ["Gastroenterology", "Internal Medicine"], "weight": 55, "urgent": False},
+    "vomiting": {"specialties": ["Gastroenterology", "Emergency"], "weight": 80, "urgent": False},
+    "constipation": {"specialties": ["Gastroenterology", "Family Medicine"], "weight": 45, "urgent": False},
+    "bloody stool": {"specialties": ["Gastroenterology", "Emergency"], "weight": 130, "urgent": True},
+    "blood in stool": {"specialties": ["Gastroenterology", "Emergency"], "weight": 130, "urgent": True},
+    "heartburn": {"specialties": ["Gastroenterology", "Internal Medicine"], "weight": 55, "urgent": False},
+    "reflux": {"specialties": ["Gastroenterology"], "weight": 60, "urgent": False},
+    "gastritis": {"specialties": ["Gastroenterology"], "weight": 70, "urgent": False},
+    "ulcer": {"specialties": ["Gastroenterology"], "weight": 70, "urgent": False},
+    "liver": {"specialties": ["Gastroenterology"], "weight": 75, "urgent": False},
+    # -- Musculoskeletal --
+    "back pain": {"specialties": ["Orthopedics", "Physiotherapy / Rehabilitation", "Rheumatology"], "weight": 80, "urgent": False},
+    "lower back pain": {"specialties": ["Orthopedics", "Physiotherapy / Rehabilitation"], "weight": 85, "urgent": False},
+    "neck pain": {"specialties": ["Orthopedics", "Neurology", "Rheumatology"], "weight": 75, "urgent": False},
+    "joint pain": {"specialties": ["Rheumatology", "Orthopedics"], "weight": 80, "urgent": False},
+    "knee pain": {"specialties": ["Orthopedics", "Sports Medicine"], "weight": 80, "urgent": False},
+    "shoulder pain": {"specialties": ["Orthopedics", "Sports Medicine"], "weight": 80, "urgent": False},
+    "ankle pain": {"specialties": ["Orthopedics", "Sports Medicine"], "weight": 75, "urgent": False},
+    "swollen": {"specialties": ["Orthopedics", "Rheumatology", "Internal Medicine"], "weight": 65, "urgent": False},
+    "arthritis": {"specialties": ["Rheumatology", "Orthopedics"], "weight": 90, "urgent": False},
+    "muscle pain": {"specialties": ["Orthopedics", "Rheumatology", "Family Medicine"], "weight": 55, "urgent": False},
+    "sports injury": {"specialties": ["Sports Medicine", "Orthopedics", "Physiotherapy / Rehabilitation"], "weight": 90, "urgent": False},
+    "injury": {"specialties": ["Orthopedics", "Emergency"], "weight": 90, "urgent": False},
+    "sprain": {"specialties": ["Orthopedics", "Physiotherapy / Rehabilitation"], "weight": 70, "urgent": False},
+    "fracture": {"specialties": ["Orthopedics", "Emergency"], "weight": 150, "urgent": True},
+    "broken bone": {"specialties": ["Orthopedics", "Emergency"], "weight": 150, "urgent": True},
+    # -- Dental / oral --
+    "tooth pain": {"specialties": ["Dental"], "weight": 100, "urgent": False},
+    "toothache": {"specialties": ["Dental"], "weight": 100, "urgent": False},
+    "dental pain": {"specialties": ["Dental"], "weight": 95, "urgent": False},
+    "gum": {"specialties": ["Dental"], "weight": 70, "urgent": False},
+    # -- Ear, nose, throat --
+    "ear pain": {"specialties": ["ENT"], "weight": 85, "urgent": False},
+    "hearing loss": {"specialties": ["ENT"], "weight": 80, "urgent": False},
+    "sore throat": {"specialties": ["ENT", "Internal Medicine", "Family Medicine"], "weight": 60, "urgent": False},
+    "runny nose": {"specialties": ["ENT", "Internal Medicine", "Family Medicine"], "weight": 45, "urgent": False},
+    "stuffy nose": {"specialties": ["ENT", "Internal Medicine"], "weight": 45, "urgent": False},
+    "nasal congestion": {"specialties": ["ENT"], "weight": 50, "urgent": False},
+    "sinus": {"specialties": ["ENT"], "weight": 55, "urgent": False},
+    "tinnitus": {"specialties": ["ENT", "Neurology"], "weight": 70, "urgent": False},
+    # -- Eye --
+    "eye pain": {"specialties": ["Ophthalmology"], "weight": 90, "urgent": False},
+    "blurred vision": {"specialties": ["Ophthalmology", "Neurology"], "weight": 90, "urgent": True},
+    "vision loss": {"specialties": ["Ophthalmology", "Emergency", "Neurology"], "weight": 130, "urgent": True},
+    "conjunctivitis": {"specialties": ["Ophthalmology"], "weight": 70, "urgent": False},
+    "pink eye": {"specialties": ["Ophthalmology"], "weight": 65, "urgent": False},
+    # -- Skin --
+    "skin rash": {"specialties": ["Dermatology"], "weight": 90, "urgent": False},
+    "rash": {"specialties": ["Dermatology", "Infectious Diseases"], "weight": 85, "urgent": False},
+    "itching": {"specialties": ["Dermatology", "Allergy & Immunology"], "weight": 70, "urgent": False},
+    "itchy": {"specialties": ["Dermatology", "Allergy & Immunology"], "weight": 65, "urgent": False},
+    "eczema": {"specialties": ["Dermatology"], "weight": 85, "urgent": False},
+    "acne": {"specialties": ["Dermatology"], "weight": 50, "urgent": False},
+    # -- Allergy --
+    "allergy": {"specialties": ["Allergy & Immunology", "Emergency"], "weight": 90, "urgent": False},
+    "allergic": {"specialties": ["Allergy & Immunology"], "weight": 80, "urgent": False},
+    "anaphylaxis": {"specialties": ["Emergency", "Allergy & Immunology"], "weight": 180, "urgent": True},
+    "hives": {"specialties": ["Dermatology", "Allergy & Immunology"], "weight": 75, "urgent": False},
+    # -- Infectious / systemic --
+    "fever": {"specialties": ["Internal Medicine", "Infectious Diseases", "Family Medicine"], "weight": 75, "urgent": False},
+    "high fever": {"specialties": ["Infectious Diseases", "Emergency", "Internal Medicine"], "weight": 120, "urgent": True},
+    "temperature": {"specialties": ["Internal Medicine", "Family Medicine"], "weight": 50, "urgent": False},
+    "flu": {"specialties": ["Internal Medicine", "Family Medicine"], "weight": 65, "urgent": False},
+    "influenza": {"specialties": ["Internal Medicine", "Infectious Diseases"], "weight": 85, "urgent": False},
+    "cold": {"specialties": ["Internal Medicine", "Family Medicine"], "weight": 40, "urgent": False},
+    "common cold": {"specialties": ["Internal Medicine", "Family Medicine"], "weight": 40, "urgent": False},
+    "covid": {"specialties": ["Infectious Diseases", "Pulmonary / Respiratory", "Emergency"], "weight": 110, "urgent": False},
+    # -- Endocrine --
+    "diabetes": {"specialties": ["Endocrinology", "Internal Medicine"], "weight": 95, "urgent": False},
+    "thyroid": {"specialties": ["Endocrinology"], "weight": 80, "urgent": False},
+    "hormone": {"specialties": ["Endocrinology"], "weight": 65, "urgent": False},
+    "weight loss": {"specialties": ["Endocrinology", "Oncology", "Internal Medicine"], "weight": 70, "urgent": False},
+    "weight gain": {"specialties": ["Endocrinology", "Internal Medicine"], "weight": 50, "urgent": False},
+    "fatigue": {"specialties": ["Internal Medicine", "Endocrinology", "Family Medicine"], "weight": 50, "urgent": False},
+    "tired": {"specialties": ["Internal Medicine", "Family Medicine"], "weight": 40, "urgent": False},
+    # -- Urology / Renal --
+    "urinary pain": {"specialties": ["Urology"], "weight": 80, "urgent": False},
+    "blood in urine": {"specialties": ["Urology", "Nephrology"], "weight": 110, "urgent": False},
+    "hematuria": {"specialties": ["Urology", "Nephrology"], "weight": 110, "urgent": False},
+    "uti": {"specialties": ["Urology", "Infectious Diseases"], "weight": 85, "urgent": False},
+    "urinary tract infection": {"specialties": ["Urology", "Infectious Diseases"], "weight": 85, "urgent": False},
+    "kidney pain": {"specialties": ["Nephrology", "Urology"], "weight": 90, "urgent": False},
+    "kidney stone": {"specialties": ["Urology", "Nephrology"], "weight": 100, "urgent": False},
+    # -- OB/GYN --
+    "pregnancy": {"specialties": ["Obstetrics & Gynecology"], "weight": 120, "urgent": False},
+    "pregnant": {"specialties": ["Obstetrics & Gynecology"], "weight": 110, "urgent": False},
+    "vaginal bleeding": {"specialties": ["Obstetrics & Gynecology", "Emergency"], "weight": 140, "urgent": True},
+    "menstrual pain": {"specialties": ["Obstetrics & Gynecology"], "weight": 70, "urgent": False},
+    "period pain": {"specialties": ["Obstetrics & Gynecology"], "weight": 65, "urgent": False},
+    "menopause": {"specialties": ["Obstetrics & Gynecology", "Endocrinology"], "weight": 60, "urgent": False},
+    # -- Pediatrics --
+    "child fever": {"specialties": ["Pediatrics"], "weight": 110, "urgent": True},
+    "child vomiting": {"specialties": ["Pediatrics", "Gastroenterology"], "weight": 85, "urgent": False},
+    "child": {"specialties": ["Pediatrics", "Family Medicine"], "weight": 50, "urgent": False},
+    "baby": {"specialties": ["Pediatrics"], "weight": 60, "urgent": False},
+    "infant": {"specialties": ["Pediatrics"], "weight": 60, "urgent": False},
+    # -- Mental health --
+    "anxiety": {"specialties": ["Mental Health / Psychiatry"], "weight": 95, "urgent": False},
+    "depression": {"specialties": ["Mental Health / Psychiatry"], "weight": 100, "urgent": True},
+    "insomnia": {"specialties": ["Mental Health / Psychiatry", "Neurology"], "weight": 60, "urgent": False},
+    "stress": {"specialties": ["Mental Health / Psychiatry", "Family Medicine"], "weight": 50, "urgent": False},
+    "panic": {"specialties": ["Mental Health / Psychiatry", "Emergency"], "weight": 110, "urgent": False},
+    "suicide": {"specialties": ["Mental Health / Psychiatry", "Emergency"], "weight": 200, "urgent": True},
+    # -- Geriatrics / senior --
+    "elderly": {"specialties": ["Geriatrics", "Internal Medicine"], "weight": 70, "urgent": False},
+    "senior": {"specialties": ["Geriatrics"], "weight": 55, "urgent": False},
+    "dementia": {"specialties": ["Geriatrics", "Neurology", "Mental Health / Psychiatry"], "weight": 100, "urgent": False},
+    "alzheimer": {"specialties": ["Geriatrics", "Neurology"], "weight": 110, "urgent": False},
+    "parkinson": {"specialties": ["Geriatrics", "Neurology"], "weight": 110, "urgent": False},
+    # -- Cancer / oncology --
+    "cancer": {"specialties": ["Oncology"], "weight": 140, "urgent": False},
+    "tumor": {"specialties": ["Oncology"], "weight": 120, "urgent": False},
+    "chemotherapy": {"specialties": ["Oncology"], "weight": 110, "urgent": False},
+    # -- Trauma / emergency --
+    "trauma": {"specialties": ["Emergency"], "weight": 150, "urgent": True},
+    "accident": {"specialties": ["Emergency", "Orthopedics"], "weight": 130, "urgent": True},
+    "bleeding": {"specialties": ["Emergency"], "weight": 160, "urgent": True},
+    "burn": {"specialties": ["Emergency", "Plastic Surgery"], "weight": 140, "urgent": True},
+    "animal bite": {"specialties": ["Emergency", "Infectious Diseases"], "weight": 150, "urgent": True},
+    "dog bite": {"specialties": ["Emergency", "Infectious Diseases"], "weight": 140, "urgent": True},
+    "poisoning": {"specialties": ["Emergency"], "weight": 180, "urgent": True},
+    "choking": {"specialties": ["Emergency"], "weight": 180, "urgent": True},
+    # -- Travel --
+    "traveler": {"specialties": ["Travel Medicine", "Family Medicine"], "weight": 80, "urgent": False},
+    "travel medicine": {"specialties": ["Travel Medicine"], "weight": 90, "urgent": False},
+    "vaccine": {"specialties": ["Travel Medicine", "Infectious Diseases", "Family Medicine"], "weight": 70, "urgent": False},
+    "yellow fever": {"specialties": ["Travel Medicine", "Infectious Diseases"], "weight": 100, "urgent": False},
+}
+
+
+# ---------------------------------------------------------------------------
+# Per-hospital specialty strength score. 0-100. "80" = very strong, "40" = available but not focus.
+# Missing entries default to 50 if hospital lists the specialty, 10 otherwise.
+# ---------------------------------------------------------------------------
+HOSPITAL_STRENGTH: dict[str, dict[str, int]] = {
+    "pumch": {
+        "Internal Medicine": 90, "Cardiology": 90, "Neurology": 95, "Pediatrics": 75,
+        "Oncology": 90, "Endocrinology": 85, "Gastroenterology": 85, "Pulmonary / Respiratory": 80,
+        "Rheumatology": 75, "Infectious Diseases": 85, "Nephrology": 75, "Geriatrics": 80,
+        "Emergency": 90,
+    },
+    "ufh": {
+        "Family Medicine": 95, "Pediatrics": 90, "Obstetrics & Gynecology": 90,
+        "Gynecology": 85, "Dental": 85, "Emergency": 85, "Cardiology": 70,
+        "Orthopedics": 75, "Dermatology": 80, "Internal Medicine": 75,
+        "Mental Health / Psychiatry": 70, "Endocrinology": 70, "Ophthalmology": 65,
+        "ENT": 65, "Travel Medicine": 85,
+    },
+    "bjh": {
+        "Geriatrics": 95, "Cardiology": 85, "Endocrinology": 90, "Neurology": 80,
+        "Internal Medicine": 90, "Oncology": 75, "Rheumatology": 75, "Nephrology": 75,
+        "Pulmonary / Respiratory": 75,
+    },
+    "amcare": {
+        "Obstetrics & Gynecology": 95, "Gynecology": 95, "Pediatrics": 90,
+        "Pediatric Surgery": 85, "Dental": 70, "Family Medicine": 70,
+    },
+    "hku": {
+        "Cardiology": 90, "Oncology": 95, "Orthopedics": 85, "Internal Medicine": 80,
+        "Pediatrics": 75, "Emergency": 85, "Gastroenterology": 80,
+        "Pulmonary / Respiratory": 75, "Infectious Diseases": 80,
+    },
+    "raffles": {
+        "Family Medicine": 90, "Pediatrics": 75, "Dental": 85, "Dermatology": 85,
+        "Travel Medicine": 95, "Internal Medicine": 70, "Allergy & Immunology": 70,
+    },
+}
+
+
+# ---- Urgent symptoms (aggregate from new mapping) ------------------------
+URGENT_SYMPTOMS: set[str] = {k for k, v in SYMPTOM_TO_SPECIALTIES.items() if v.get("urgent")}
+
+
+
 # ---- Indoor navigation map (representative hospital layout) --------------
 # 坐标系：viewBox 0 0 1000 600，每个节点放置真实房间中心
 INDOOR_MAP = {

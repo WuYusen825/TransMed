@@ -298,30 +298,67 @@
   /* ----------------------------- 分诊 ----------------------------- */
   document.getElementById("btn-triage").addEventListener("click", async () => {
     const symptom = document.getElementById("triage-input").value.trim();
-    const res = symptom ? await api("/api/triage", {
-      method: "POST", body: JSON.stringify({ symptoms: symptom, language: "en" })
-    }) : null;
+    const insurance = document.getElementById("insurance-filter").value;
+    const specialty = document.getElementById("specialty-filter").value;
+
+    // 使用 POST /api/recommendations 一步完成：分诊 + 医院推荐排序
+    let recRes = null;
+    if (symptom) {
+      try {
+        recRes = await api("/api/recommendations", {
+          method: "POST",
+          body: JSON.stringify({
+            symptoms: symptom,
+            city: "北京",
+            insurance: insurance || null,
+            language: null,
+            specialty_override: specialty || null,
+            limit: 10,
+          }),
+        });
+      } catch (e) {
+        console.warn("recommendations endpoint failed, fallback to triage + list", e);
+      }
+    }
+
     const el = document.getElementById("triage-result");
     el.classList.remove("hidden", "urgent");
     if (symptom) {
-      if (!res) {
+      let triage = null;
+      if (recRes && recRes.triage) triage = recRes.triage;
+      else {
+        triage = await api("/api/triage", {
+          method: "POST", body: JSON.stringify({ symptoms: symptom, language: "en" })
+        });
+      }
+      if (!triage) {
         el.textContent = "Triage service temporarily unavailable.";
       } else {
-        const dept = res.department_en || "General Medicine";
-        const deptZh = res.department_zh || "";
-        const urgent = !!res.urgent;
-        const label = urgent ? "URGENT" : "Recommended";
+        const dept = triage.department_en || "General Medicine";
+        const deptZh = triage.department_zh || "";
+        const urgent = !!triage.urgent;
+        const label = urgent ? "🚨 URGENT — please see a doctor ASAP" : "Recommended";
         if (urgent) el.classList.add("urgent");
+        const matched = triage.matched_symptoms && triage.matched_symptoms.length
+          ? `<div class="muted small" style="margin-top:6px;">Matched keywords: ${triage.matched_symptoms.map(s => `<span class="chip">${s}</span>`).join("")}</div>`
+          : "";
         el.innerHTML = `
           <div><span class="triage-label">${label}</span></div>
           <strong>Department:</strong> ${dept}${deptZh ? " · " + deptZh : ""}<br>
-          ${res.recommendation_en || "Please consult a doctor."}
+          ${triage.recommendation_en || "Please consult a doctor."}
+          ${matched}
         `;
       }
     } else {
       el.classList.add("hidden");
     }
-    loadHospitals();
+
+    if (recRes && Array.isArray(recRes.hospitals)) {
+      lastHospitalsRaw = recRes.hospitals;
+      renderHospitals(lastHospitalsRaw, { symptom });
+    } else {
+      loadHospitals();
+    }
   });
 
   /* 排序单选按钮触发重新排序 */
@@ -351,7 +388,7 @@
     } else {
       lastHospitalsRaw = [];
     }
-    renderHospitals(lastHospitalsRaw);
+    renderHospitals(lastHospitalsRaw, { symptom });
   }
 
   function currentSortKey() {
@@ -360,22 +397,30 @@
     return "rating";
   }
 
-  function renderHospitals(list) {
+  function renderHospitals(list, options) {
+    options = options || {};
     const container = document.getElementById("hospital-list");
     if (!list || list.length === 0) {
       container.innerHTML = "<p class='muted'>No hospitals match your filters.</p>";
       return;
     }
     const sortKey = currentSortKey();
-    const sorted = [...list].sort((a, b) => {
-      const va = a[sortKey]; const vb = b[sortKey];
-      if (va == null) return 1;
-      if (vb == null) return -1;
-      if (sortKey === "rating") return vb - va;
-      return va - vb;
-    });
+    const hasScores = list.some(h => h && h.recommendation && typeof h.recommendation.score === "number");
+    let sorted;
+    if (hasScores && sortKey === "rating") {
+      // 症状模式下：按推荐分排序
+      sorted = [...list].sort((a, b) => (b.recommendation && b.recommendation.score || 0) - (a.recommendation && a.recommendation.score || 0));
+    } else {
+      sorted = [...list].sort((a, b) => {
+        const va = a[sortKey]; const vb = b[sortKey];
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (sortKey === "rating") return vb - va;
+        return va - vb;
+      });
+    }
 
-    container.innerHTML = sorted.map(h => {
+    container.innerHTML = sorted.map((h, idx) => {
       const specialties = (h.specialties || h.departments || []).slice(0, 5).map(s => {
         const name = typeof s === "string" ? s : (s.name || "");
         return `<span class="chip">${name}</span>`;
@@ -388,6 +433,36 @@
       const address = [h.address, h.address_zh].filter(Boolean).join(" · ");
       const phone = h.phone || "";
       const hours = h.hours || "";
+
+      const rec = h.recommendation;
+      let recHtml = "";
+      if (rec) {
+        const badgeColor = hasScores && idx === 0 ? "#d97706" : "#0891b2";
+        const badgeText = hasScores && idx === 0 ? "★ TOP PICK" : "Recommended";
+        const scoreColor = rec.score >= 250 ? "#16a34a" : rec.score >= 150 ? "#f59e0b" : "#64748b";
+        const reasonsHtml = (rec.reasons && rec.reasons.length)
+          ? `<div class="chips"><span class="muted small">Why it's a good match:</span> ${rec.reasons.map(r => `<span class="chip">${r}</span>`).join("")}</div>`
+          : "";
+        const deptsHtml = (rec.matched_specialties && rec.matched_specialties.length)
+          ? `<div class="chips"><span class="muted small">Matched specialties:</span> ${rec.matched_specialties.map(r => `<span class="chip">${r}</span>`).join("")}</div>`
+          : "";
+        recHtml = `
+          <div class="hospital-recommendation">
+            <div class="rec-head">
+              <span class="rec-badge" style="color:${badgeColor};">${badgeText}</span>
+              <span class="rec-score" title="Composite score">
+                Score <strong style="color:${scoreColor}">${Number(rec.score).toFixed(0)}</strong>
+              </span>
+              ${typeof rec.specialty_score === "number" ? `<span class="muted small">· specialty ${Number(rec.specialty_score).toFixed(0)}</span>` : ""}
+              ${typeof rec.rating_score === "number" ? `<span class="muted small">· rating ${Number(rec.rating_score).toFixed(0)}</span>` : ""}
+              ${typeof rec.wait_score === "number" ? `<span class="muted small">· wait-time ${Number(rec.wait_score).toFixed(0)}</span>` : ""}
+              ${typeof rec.distance_score === "number" ? `<span class="muted small">· distance ${Number(rec.distance_score).toFixed(0)}</span>` : ""}
+            </div>
+            ${deptsHtml}
+            ${reasonsHtml}
+          </div>
+        `;
+      }
 
       return `
         <div class="hospital">
@@ -405,6 +480,7 @@
             ${specialties ? `<div class="chips"><span class="muted small">Specialties:</span> ${specialties}</div>` : ""}
             ${insurances ? `<div class="chips"><span class="muted small">Insurance:</span> ${insurances}</div>` : ""}
             ${languages ? `<div class="chips"><span class="muted small">Languages:</span> ${languages}</div>` : ""}
+            ${recHtml}
           </div>
           <div class="hospital-side">
             <div class="rating-badge" title="Rating from public reviews">
