@@ -351,11 +351,16 @@ def public_config() -> Dict[str, Any]:
             web_error = f"网络异常：{e}"
             logger.warning("AMAP web-key health-check error: %s", e)
 
+    security_code = settings.AMAP_SECURITY_JS_CODE or ""
     return {
         "js_key": js_key,
         "has_js_key": has_js,
         "has_web_key": has_web,
         "web_error": web_error,
+        # 安全密钥：前端在加载 maps.js 前设置 window._AMapSecurityConfig.securityJsCode
+        # 才能使用路线规划插件。为空时前端回退到外部地图 App + 文字路线。
+        "security_code": security_code,
+        "has_security_code": bool(security_code),
         "default_city": "北京",
         "cities": [
             {"name": "北京", "en": "Beijing"},

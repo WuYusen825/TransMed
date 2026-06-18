@@ -1,821 +1,857 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建前端 app.js
- - 翻译：修复字段名 (source/target, translated, matched_terms)
- - 导航：内置高德 JS API 地图 + 路线（不跳外部）
+"""构建前端 app.js（源文件）。
+
+JS 以 raw 字符串内嵌于此，运行后写入 transmed_web/app.js 与 docs/app.js 两份。
+  python3 build_appjs.py
+
+设计目标（2026 重做）：
+  · 浅色 Claude 奶油风 + 苹果式滚动/动效（配合 style.css）
+  · 接活此前的死功能：登录注册 / 首页统计 / 用药库与提醒 / 隐私导出清除 / 反馈 / 个人中心
+  · 修复导航：设置 _AMapSecurityConfig 安全密钥 → 真正画出路线折线 + 转向步骤；跨页"导航到这里"不再丢目标
+  · 升级医院推荐：症状→分诊→按匹配度排序，给出推荐理由 + 真实评价 + 距离 + 一键导航
 """
 import os
 
-JS = r'''/* TransMed frontend logic */
-(function() {
+JS = r'''/* TransMed frontend — light Claude theme build */
+(function () {
   'use strict';
 
-  // ===== 全局配置 =====
-  var byId = function(id) { return document.getElementById(id); };
-  var qs = function(sel) { return document.querySelector(sel); };
-  var qsa = function(sel) { return Array.from(document.querySelectorAll(sel)); };
-  var bindClick = function(el, handler) { if (el) el.addEventListener('click', handler); };
-  var bindChange = function(el, handler) { if (el) el.addEventListener('change', handler); };
+  /* ============================== tiny utils ============================== */
+  var byId = function (id) { return document.getElementById(id); };
+  var qs   = function (s, r) { return (r || document).querySelector(s); };
+  var qsa  = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var on   = function (el, ev, fn) { if (el) el.addEventListener(ev, fn); };
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  function trim(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n).trim() + '…' : s; }
+  function num(v) { var n = typeof v === 'number' ? v : parseFloat(v); return isFinite(n) ? n : null; }
 
-  // ---- 语言代码表 ----
-  var LANGS = [
-    { code: 'en', name: 'English' },
-    { code: 'zh', name: '中文' },
-    { code: 'ja', name: '日文' },
-    { code: 'ko', name: '韩文' },
-    { code: 'fr', name: 'Français' },
-    { code: 'de', name: 'Deutsch' },
-    { code: 'es', name: 'Español' },
-    { code: 'it', name: 'Italiano' },
-    { code: 'ru', name: 'Русский' },
-    { code: 'ar', name: 'العربية' },
-    { code: 'hi', name: 'हिन्दी' },
-    { code: 'pt', name: 'Português' }
-  ];
-
-  // ---- API base 检测 ----
+  /* ============================== API base ============================== */
   var metaApi = qs("meta[name='api-base']");
-  var API = '';
-  if (metaApi) API = metaApi.getAttribute('content') || '';
-  else if (location.protocol === 'file:' || location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+  var API = metaApi ? (metaApi.getAttribute('content') || '') : '';
+  if (!API && (location.protocol === 'file:' || /localhost|127\.0\.0\.1/.test(location.hostname))) {
     API = 'http://127.0.0.1:8000';
   }
 
-  // ---- 简易离线医学词库（兜底，当 API 不可用时使用） ----
-  var OFFLINE_EN2ZH = {
-    'headache': '头痛', 'dizziness': '头晕', 'fever': '发热', 'cough': '咳嗽',
-    'stomach pain': '胃痛', 'back pain': '背痛', 'skin rash': '皮疹',
-    'fatigue': '乏力', 'sore throat': '咽痛', 'shortness of breath': '呼吸困难',
-    'nausea': '恶心', 'vomiting': '呕吐', 'diarrhea': '腹泻',
-    'joint pain': '关节痛', 'anxiety': '焦虑', 'chest pain': '胸痛',
-    'high blood pressure': '高血压', 'palpitations': '心悸',
-    'insomnia': '失眠', 'loss of appetite': '食欲减退',
-    'runny nose': '流鼻涕', 'sneezing': '打喷嚏', 'itching': '瘙痒'
-  };
+  /* ============================== session ============================== */
+  var TOKEN_KEY = 'transmed_token', USER_KEY = 'transmed_user';
+  var token = '', currentUser = null;
+  try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) {}
+  try { currentUser = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) {}
 
-  // ================================================================
-  // 1) 视图切换
-  // ================================================================
-  var navLinks = qsa('.nav-link');
-  var views = qsa('.view');
-  var setActive = function(view) {
-    views.forEach(function(v) { v.classList.toggle('active', v.dataset.view === view); });
-    navLinks.forEach(function(a) { a.classList.toggle('active', a.dataset.view === view); });
+  function setSession(tok, user) {
+    token = tok || ''; currentUser = user || null;
+    try { localStorage.setItem(TOKEN_KEY, token); localStorage.setItem(USER_KEY, JSON.stringify(currentUser)); } catch (e) {}
+    refreshAuthUI();
+  }
+  function clearSession() {
+    token = ''; currentUser = null;
+    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); } catch (e) {}
+    refreshAuthUI();
+  }
+
+  /* ============================== fetch helper ============================== */
+  // api(path, {method, body, auth, timeout}) -> Promise<data>; rejects with Error(.status,.data)
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = {};
+    if (opts.body != null) headers['Content-Type'] = 'application/json';
+    if (opts.auth && token) headers['Authorization'] = 'Bearer ' + token;
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var tid = ctrl ? setTimeout(function () { ctrl.abort(); }, opts.timeout || 15000) : null;
+    var init = { method: opts.method || 'GET', headers: headers };
+    if (opts.body != null) init.body = JSON.stringify(opts.body);
+    if (ctrl) init.signal = ctrl.signal;
+    return fetch((API || '') + path, init).then(function (r) {
+      return r.text().then(function (t) {
+        var data; try { data = t ? JSON.parse(t) : {}; } catch (e) { data = { _raw: t }; }
+        if (!r.ok) {
+          var msg = (data && (data.detail || data.message)) || ('HTTP ' + r.status);
+          var err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+          err.status = r.status; err.data = data; throw err;
+        }
+        return data;
+      });
+    }).then(function (d) { if (tid) clearTimeout(tid); return d; }, function (e) { if (tid) clearTimeout(tid); throw e; });
+  }
+
+  /* ============================== toast ============================== */
+  function toast(msg, kind) {
+    var host = byId('toast-host'); if (!host) { return; }
+    var icon = kind === 'ok' ? '✓' : kind === 'err' ? '⚠' : kind === 'warn' ? '!' : '•';
+    var el = document.createElement('div');
+    el.className = 'toast ' + (kind || '');
+    el.innerHTML = '<span class="ti">' + icon + '</span><span>' + esc(msg) + '</span>';
+    host.appendChild(el);
+    setTimeout(function () {
+      el.style.transition = 'opacity .35s, transform .35s'; el.style.opacity = '0'; el.style.transform = 'translateY(10px)';
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 380);
+    }, 3200);
+  }
+
+  /* ============================== shared geo ============================== */
+  var _userLoc = null;          // {lng, lat} (WGS84 from browser)
+  function haversineKm(a, b) {
+    if (!a || !b) return null;
+    var R = 6371, toRad = function (d) { return d * Math.PI / 180; };
+    var dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+    var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+  function getLocation(onOk, onErr) {
+    if (!navigator.geolocation) { onErr && onErr('Geolocation unavailable'); return; }
+    navigator.geolocation.getCurrentPosition(function (p) {
+      _userLoc = { lng: p.coords.longitude, lat: p.coords.latitude };
+      Nav.setOriginFromGps(_userLoc);
+      onOk && onOk(_userLoc);
+    }, function (err) { onErr && onErr(err.message || 'denied'); },
+       { timeout: 15000, enableHighAccuracy: true });
+  }
+
+  /* ============================== fallback hospital data ============================== */
+  var FALLBACK_HOSPITALS = [
+    { id: 'pumch', name: 'Peking Union Medical College Hospital', name_zh: '北京协和医院', address_zh: '东城区帅府园1号', phone: '+86 10 6915 6114', rating: 4.9, review_count: 8600, specialties: ['General Medicine', 'Cardiology', 'Neurology', 'Endocrinology'], lng: 116.41513, lat: 39.912815 },
+    { id: 'bjh', name: 'Beijing Hospital', name_zh: '北京医院', address_zh: '东城区东单大华路1号', phone: '+86 10 8513 2266', rating: 4.6, review_count: 2100, specialties: ['Geriatrics', 'Cardiology', 'Endocrinology'], lng: 116.415057, lat: 39.903772 },
+    { id: 'tongren', name: 'Beijing Tongren Hospital', name_zh: '北京同仁医院', address_zh: '东城区东交民巷1号', phone: '+86 10 5826 9988', rating: 4.6, review_count: 4200, specialties: ['Ophthalmology', 'ENT'], lng: 116.417224, lat: 39.902721 },
+    { id: 'ufh', name: 'Beijing United Family Hospital', name_zh: '北京和睦家医院', address_zh: '朝阳区将台路2号', phone: '+86 10 5927 7000', rating: 4.8, review_count: 1500, specialties: ['Family Medicine', 'Pediatrics', 'Emergency', 'OB/GYN'], lng: 116.4677, lat: 39.9754 },
+    { id: '301', name: 'PLA General Hospital (301)', name_zh: '解放军总医院', address_zh: '海淀区复兴路28号', phone: '+86 10 6693 7329', rating: 4.7, review_count: 5300, specialties: ['Trauma Surgery', 'Oncology', 'Cardiology', 'Orthopedics'], lng: 116.2875, lat: 39.9067 }
+  ];
+
+  /* ============================== languages ============================== */
+  var LANGS = [
+    { code: 'en', name: 'English' }, { code: 'zh', name: '中文' }, { code: 'ja', name: '日本語' },
+    { code: 'ko', name: '한국어' }, { code: 'fr', name: 'Français' }, { code: 'de', name: 'Deutsch' },
+    { code: 'es', name: 'Español' }, { code: 'it', name: 'Italiano' }, { code: 'ru', name: 'Русский' },
+    { code: 'ar', name: 'العربية' }, { code: 'pt', name: 'Português' }, { code: 'hi', name: 'हिन्दी' }
+  ];
+
+  /* ============================================================
+     1) View switching + scroll reveal + topbar
+     ============================================================ */
+  var navLinks = qsa('.nav-link'), views = qsa('.view');
+  var _viewInit = {};
+  function setActive(view) {
+    views.forEach(function (v) { v.classList.toggle('active', v.dataset.view === view); });
+    navLinks.forEach(function (a) { a.classList.toggle('active', a.dataset.view === view); });
+    if (view !== 'home') window.scrollTo({ top: 0, behavior: 'smooth' });
     try {
-      if (view === 'hospitals') loadHospitals();
-      if (view === 'navigation') initNavigation();
-    } catch(e) { console.warn('setActive error:', e); }
-  };
-  navLinks.forEach(function(a) { bindClick(a, function() { setActive(a.dataset.view); }); });
-  qsa('[data-go]').forEach(function(btn) { bindClick(btn, function() { setActive(btn.dataset.go); }); });
+      if (view === 'hospitals' && !_viewInit.hospitals) { _viewInit.hospitals = 1; loadHospitals(); }
+      if (view === 'navigation') Nav.enter();
+      if (view === 'medication' && !_viewInit.medication) { _viewInit.medication = 1; Med.init(); }
+      if (view === 'account') Account.render();
+      if (view === 'translate') loadMyTranslations();
+    } catch (e) { console.warn('view init error', view, e); }
+    revealScan();
+  }
+  navLinks.forEach(function (a) { on(a, 'click', function () { setActive(a.dataset.view); }); });
+  qsa('[data-go]').forEach(function (b) { on(b, 'click', function () { setActive(b.dataset.go); }); });
 
-  // ================================================================
-  // 2) 翻译
-  // ================================================================
+  // scroll reveal
+  var _io = null;
+  if ('IntersectionObserver' in window) {
+    _io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('is-visible'); _io.unobserve(en.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  }
+  function revealScan() {
+    qsa('.reveal:not(.is-visible)').forEach(function (el) {
+      if (_io) _io.observe(el); else el.classList.add('is-visible');
+    });
+  }
+
+  // topbar shadow on scroll
+  var topbar = byId('topbar');
+  function onScroll() { if (topbar) topbar.classList.toggle('scrolled', window.scrollY > 8); }
+  on(window, 'scroll', onScroll); onScroll();
+
+  /* ============================================================
+     2) Translate
+     ============================================================ */
   (function initLangSelectors() {
-    var src = byId('src-lang');
-    var tgt = byId('tgt-lang');
-    [src, tgt].forEach(function(sel, idx) {
-      if (!sel) return;
-      sel.innerHTML = '';
-      LANGS.forEach(function(l) {
-        var o = document.createElement('option');
-        o.value = l.code;
-        o.textContent = l.name;
-        sel.appendChild(o);
+    [byId('src-lang'), byId('tgt-lang')].forEach(function (sel, i) {
+      if (!sel) return; sel.innerHTML = '';
+      LANGS.forEach(function (l) {
+        var o = document.createElement('option'); o.value = l.code; o.textContent = l.name; sel.appendChild(o);
       });
-      sel.value = idx === 0 ? 'en' : 'zh';
+      sel.value = i === 0 ? 'en' : 'zh';
     });
   })();
-
-  bindClick(byId('swap-lang'), function() {
-    var src = byId('src-lang'); var tgt = byId('tgt-lang');
-    if (src && tgt) { var v = src.value; src.value = tgt.value; tgt.value = v; }
+  on(byId('swap-lang'), 'click', function () {
+    var s = byId('src-lang'), t = byId('tgt-lang');
+    if (s && t) { var v = s.value; s.value = t.value; t.value = v; }
   });
 
-  bindClick(byId('btn-translate'), function() {
-    var txt = byId('src-text') ? byId('src-text').value.trim() : '';
-    var srcLang = byId('src-lang') ? byId('src-lang').value : 'en';
-    var tgtLang = byId('tgt-lang') ? byId('tgt-lang').value : 'zh';
-    var btn = byId('btn-translate');
-    var out = byId('tgt-text');
-    var confBox = byId('confidence-bar');
+  function showTranslation(translated, confidence, terms, engine, ragCtx) {
+    var out = byId('tgt-text'); if (!out) return;
+    out.textContent = translated; out.classList.remove('placeholder');
+    var conf = Math.max(0, Math.min(100, Math.round(confidence)));
+    var cv = byId('conf-value'); if (cv) cv.textContent = String(conf);
+    var cf = byId('conf-fill'); if (cf) cf.style.width = Math.max(8, conf) + '%';
+    var risk = conf >= 85 ? 'low' : conf >= 65 ? 'medium' : conf >= 45 ? 'high' : 'critical';
+    var rv = byId('risk-value'); if (rv) rv.textContent = risk;
+    var el = byId('engine-label');
+    if (el) {
+      var online = engine && /groq|online|ai|api/i.test(engine) && engine !== 'offline';
+      el.textContent = (online ? '● Online · ' : '○ Offline · ') + engine;
+      el.className = 'engine-label ' + (online ? 'online' : 'offline');
+    }
+    var adv = byId('conf-advice');
+    if (adv) adv.textContent = risk === 'low' ? 'High confidence. Still confirm critical details with your clinician.'
+      : risk === 'medium' ? 'Moderate confidence — double-check dosages, numbers and negations.'
+      : 'Low confidence. Please verify with a bilingual staff member before acting on this.';
+    var bc = byId('confidence-bar'); if (bc) bc.classList.remove('hidden');
+    var tb = byId('matched-terms');
+    if (tb) tb.innerHTML = (terms && terms.length)
+      ? '<div class="muted small" style="margin-bottom:6px;">Recognised medical terms</div>' +
+        terms.map(function (t) { return '<span class="chip static">' + esc(t) + '</span>'; }).join('')
+      : '';
+    var rb = byId('rag-reference');
+    if (rb) rb.innerHTML = (ragCtx && ragCtx.length)
+      ? '<details style="margin-top:12px;"><summary class="muted small" style="cursor:pointer;">📚 Medical reference (' + ragCtx.length + ')</summary><ul class="muted small" style="margin:8px 0 0 18px;">' +
+        ragCtx.slice(0, 5).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></details>'
+      : '';
+  }
+
+  var OFFLINE = { 'headache': '头痛', 'fever': '发热', 'cough': '咳嗽', 'chest pain': '胸痛', 'dizziness': '头晕', 'nausea': '恶心', 'vomiting': '呕吐', 'sore throat': '咽痛', 'shortness of breath': '呼吸困难', 'back pain': '背痛', 'rash': '皮疹', 'fatigue': '乏力' };
+  function offlineTranslate(txt, src, tgt) {
+    var res = txt, matched = [];
+    if (/zh/.test(tgt)) {
+      Object.keys(OFFLINE).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) {
+        var re = new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+        if (re.test(res)) { res = res.replace(re, OFFLINE[k]); matched.push(k); }
+      });
+    }
+    return { translated: res, confidence: matched.length ? Math.min(70, 35 + matched.length * 9) : 28, matched: matched };
+  }
+
+  on(byId('btn-translate'), 'click', function () {
+    var txt = (byId('src-text') || {}).value; txt = (txt || '').trim();
+    var src = (byId('src-lang') || {}).value || 'en', tgt = (byId('tgt-lang') || {}).value || 'zh';
+    var btn = byId('btn-translate'), out = byId('tgt-text');
     if (!txt || !out) return;
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Translating…'; }
+    var done = function () { if (btn) { btn.disabled = false; btn.textContent = 'Translate'; } };
 
-    if (btn) { btn.disabled = true; btn.textContent = '翻译中 / Translating…'; }
-    out.textContent = '';
-    if (confBox) confBox.classList.add('hidden');
-
-    var done = function() { if (btn) { btn.disabled = false; btn.textContent = '翻译 / Translate'; } };
-
-    // ---- 1) 优先：后端真实翻译 API ----
-    var tryApi = function(onOk, onErr) {
-      if (!API) { onErr && onErr('no API configured'); return; }
-      var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      var tid = null;
-      if (controller) tid = setTimeout(function() { controller.abort(); }, 15000);
-      var opts = {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: txt, source: srcLang, target: tgtLang })
-      };
-      if (controller) opts.signal = controller.signal;
-      fetch(API + '/api/translate', opts)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (tid) clearTimeout(tid);
-          if (data && (data.translated || data.translated_text)) { onOk(data); }
-          else { onErr && onErr('empty response'); }
-        })
-        .catch(function(e) {
-          if (tid) clearTimeout(tid);
-          onErr && onErr(e.message || 'network');
-        });
-    };
-
-    // ---- 2) 离线兜底（仅 en↔zh 的简单替换）----
-    var offlineFallback = function() {
-      var translated = txt;
-      var matched = 0;
-      var src = srcLang.toLowerCase();
-      var tgt = tgtLang.toLowerCase();
-      if (tgt.indexOf('zh') !== -1) {
-        // en → zh
-        var sortedKeys = Object.keys(OFFLINE_EN2ZH).sort(function(a, b) { return b.length - a.length; });
-        sortedKeys.forEach(function(k) {
-          var re = new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
-          if (re.test(translated)) { translated = translated.replace(re, OFFLINE_EN2ZH[k]); matched++; }
-        });
-      } else if (src.indexOf('zh') !== -1 && tgt.indexOf('en') !== -1) {
-        // zh → en：简单翻转
-        for (var k in OFFLINE_EN2ZH) {
-          var zh = OFFLINE_EN2ZH[k];
-          if (translated.indexOf(zh) !== -1) {
-            translated = translated.split(zh).join(k);
-            matched++;
-          }
-        }
-      }
-      var conf = matched > 0 ? Math.min(75, 35 + matched * 8) : 30;
-      showResult(translated, conf, [], 'offline');
-      done();
-    };
-
-    var showResult = function(translated, confidence, terms, engine, ragCtx) {
-      if (!out) return;
-      // ---- 关键：译文框只显示纯净译文（RAG 上下文放下方医学参考区）----
-      out.textContent = translated;
-      // ---- 置信度条 ----
-      var cv = byId('conf-value'); if (cv) cv.textContent = String(Math.round(confidence));
-      var cf = byId('conf-fill'); if (cf) cf.style.width = String(Math.min(99, Math.max(10, confidence))) + '%';
-      var risk = 'low';
-      if (confidence < 85 && confidence >= 65) risk = 'medium';
-      else if (confidence < 65 && confidence >= 45) risk = 'high';
-      else if (confidence < 45) risk = 'critical';
-      var rv = byId('risk-value'); if (rv) rv.textContent = risk;
-      var engineLabel = byId('engine-label');
-      if (engineLabel) {
-        engineLabel.textContent = 'Engine: ' + engine;
-        engineLabel.classList.remove('hidden');
-      }
-      if (confBox) confBox.classList.remove('hidden');
-      // ---- 匹配术语 ----
-      var termsBox = byId('matched-terms');
-      if (termsBox) {
-        if (terms && terms.length) {
-          termsBox.innerHTML = '<div class="muted small" style="margin-bottom:6px;">Matched medical terms:</div>' +
-            terms.map(function(t) { return '<span class="chip">' + t + '</span>'; }).join('');
-        } else {
-          termsBox.innerHTML = '';
-        }
-      }
-      // ---- RAG 医学参考（独立区域，不混入译文）----
-      var ragBox = byId('rag-reference');
-      if (ragBox) {
-        if (ragCtx && ragCtx.length) {
-          var items = ragCtx.slice(0, 5).map(function(item, i) {
-            var safe = String(item).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return '<li style="margin:4px 0; line-height:1.45;">' + safe + '</li>';
-          }).join('');
-          ragBox.innerHTML =
-            '<details open style="margin-top:10px;">' +
-            '<summary class="muted small" style="cursor:pointer;">📚 医学参考 / Medical reference (' + ragCtx.length + ')</summary>' +
-            '<ul class="muted small" style="margin:8px 0 0 18px; padding-left:4px;">' + items + '</ul>' +
-            '</details>';
-        } else {
-          ragBox.innerHTML = '';
-        }
-      }
-    };
-
-    tryApi(function(data) {
-      // 后端字段：translated 是纯净译文（不再混 RAG 原文）；confidence 0-100；matched_terms 关键词；rag_context 参考
-      var translated = data.translated || data.translated_text || '';
-      var confidence = typeof data.confidence === 'number' ? data.confidence : 60;
-      if (confidence < 1) confidence = confidence * 100;
-      var terms = data.matched_terms || data.medical_terms || [];
-      var engine = data.engine || 'api';
-      var ragCtx = (data.rag_context && data.rag_context.length) ? data.rag_context : [];
-      showResult(translated, confidence, terms, engine, ragCtx);
-      done();
-    }, function(err) {
-      console.warn('translate API failed:', err, '- using offline fallback');
-      offlineFallback();
-    });
+    api('/api/translate', { method: 'POST', body: { text: txt, source: src, target: tgt }, auth: true, timeout: 18000 })
+      .then(function (d) {
+        var translated = d.translated || d.translated_text || '';
+        var conf = num(d.confidence); if (conf == null) conf = 60; if (conf <= 1) conf *= 100;
+        showTranslation(translated, conf, d.matched_terms || d.medical_terms || [], d.engine || 'api', d.rag_context || []);
+        done(); loadMyTranslations();
+      })
+      .catch(function (e) {
+        var f = offlineTranslate(txt, src, tgt);
+        showTranslation(f.translated, f.confidence, f.matched, 'offline', []);
+        done();
+      });
   });
 
-  // 快速症状填充
+  on(byId('btn-confirm-risk'), 'click', function () { this.classList.add('hidden'); toast('Risk acknowledged', 'ok'); });
+
   (function initSymptomChips() {
-    var box = byId('symptom-chips');
-    if (!box) return;
-    var items = ['headache', 'chest pain', 'cough', 'fever', 'stomach pain', 'back pain', 'skin rash',
-                 'dizziness', 'fatigue', 'sore throat', 'shortness of breath', 'nausea', 'joint pain', 'anxiety'];
-    items.forEach(function(t) {
-      var el = document.createElement('button');
-      el.className = 'chip';
-      el.textContent = t;
-      el.type = 'button';
-      bindClick(el, function() {
-        var textarea = byId('src-text');
-        if (textarea) textarea.value = 'I have ' + t + ' for 2 days.';
-      });
-      box.appendChild(el);
+    var box = byId('symptom-chips'); if (!box) return;
+    ['headache', 'chest pain', 'high fever', 'cough', 'stomach pain', 'shortness of breath', 'dizziness', 'rash', 'back pain', 'sore throat'].forEach(function (t) {
+      var b = document.createElement('button'); b.className = 'chip'; b.type = 'button'; b.textContent = t;
+      on(b, 'click', function () { var ta = byId('src-text'); if (ta) { ta.value = 'I have ' + t + ' for 2 days.'; ta.focus(); } });
+      box.appendChild(b);
     });
   })();
 
-  // ================================================================
-  // 3) 医院列表
-  // ================================================================
-  function loadHospitals() {
-    var container = byId('hospital-list');
-    if (!container) return;
-    container.innerHTML = '<p class="muted">加载医院 / Loading…</p>';
-
-    var renderList = function(list, srcTag) {
-      if (!list || !list.length) {
-        container.innerHTML = '<p class="muted">未找到医院。</p>'; return;
-      }
-      container.innerHTML = list.map(function(h) {
-        var name = h.name || '';
-        var nameZh = (h.name_zh && h.name_zh !== name) ? (' / ' + h.name_zh) : '';
-        var addr = h.address || h.address_zh || '';
-        var phone = h.phone || '';
-        var hours = h.hours || '';
-        var ratingVal = typeof h.rating === 'number' ? h.rating : (typeof h.rating === 'string' ? parseFloat(h.rating) : null);
-        var rating = ratingVal ? ratingVal.toFixed(1) : '—';
-        var reviewCount = h.review_count || 0;
-        var reviews = h.reviews || [];
-        var firstReview = (reviews && reviews.length) ? reviews[0] : '';
-        var specials = (h.specialties || []).slice(0, 5).map(function(s) {
-          return '<span class="chip">' + (typeof s === 'string' ? s : (s.name || s)) + '</span>';
-        }).join('');
-        var lngLat = '';
-        var hasLoc = (typeof h.lng === 'number' && typeof h.lat === 'number');
-        if (hasLoc) lngLat = h.lng + ',' + h.lat;
-        var btnAction = hasLoc
-          ? '<button class="btn btn-light btn-navigate-here" data-lng="' + h.lng + '" data-lat="' + h.lat + '" data-name="' + (h.name_zh || name).replace(/"/g, '&quot;') + '">📍 导航到这里 / Navigate</button>'
-          : '';
-        // 星级
-        var stars = '';
-        if (ratingVal) {
-          var full = Math.floor(ratingVal);
-          var half = ratingVal - full >= 0.5 ? 1 : 0;
-          var empty = 5 - full - half;
-          var starStr = '★'.repeat(full) + (half ? '☆' : '') + '☆'.repeat(empty);
-          stars = '<span class="stars" title="' + rating + ' / 5">' + starStr + '</span>';
-        }
-        // 点评摘要
-        var reviewHtml = '';
-        if (firstReview) {
-          var snippet = firstReview.length > 60 ? firstReview.slice(0, 60) + '…' : firstReview;
-          reviewHtml = '<div class="sub review-box"><span class="muted small" style="font-style:italic;">"'+ snippet +'</span></div>';
-        }
-        var reviewCounter = '';
-        if (reviewCount) {
-          reviewCounter = '<span class="muted small"> · ' + reviewCount + ' 条评价</span>';
-        }
-        return '<div class="hospital">' +
-          '<div class="hospital-main">' +
-          '<div class="hospital-head"><h4>' + name + nameZh + '</h4></div>' +
-          '<div class="sub" style="margin-bottom:6px;">' + stars + reviewCounter + '</div>' +
-          (addr ? '<div class="sub">Address / 地址：' + addr + '</div>' : '') +
-          (phone ? '<div class="sub">Phone / 电话：' + phone + '</div>' : '') +
-          (hours ? '<div class="sub">Hours / 营业：' + hours + '</div>' : '') +
-          (specials ? '<div class="chips"><span class="muted small">Specialties / 专科：</span>' + specials + '</div>' : '') +
-          reviewHtml +
-          '</div>' +
-          '<div class="hospital-side">' +
-          '<div class="rating-badge"><span class="rating-num">' + rating + '</span></div>' +
-          btnAction +
-          '</div>' +
-          '</div>';
+  function loadMyTranslations() {
+    var box = byId('my-translations'); if (!box) return;
+    if (!token) { box.innerHTML = '<div class="empty-state">Sign in to keep a history of your translations.</div>'; return; }
+    api('/api/translate/logs', { auth: true }).then(function (rows) {
+      if (!rows || !rows.length) { box.innerHTML = '<div class="empty-state">No saved translations yet.</div>'; return; }
+      box.innerHTML = rows.slice(0, 8).map(function (r) {
+        return '<div class="list-item"><div><strong>' + esc(trim(r.original, 60)) + '</strong>' +
+          '<div class="meta">→ ' + esc(trim(r.translated, 70)) + '</div>' +
+          '<div class="meta">' + esc(r.source) + '→' + esc(r.target) + ' · confidence ' + Math.round(r.confidence || 0) + '% · ' + esc((r.risk_level || '')) + '</div></div></div>';
       }).join('');
-
-      // 为每个导航按钮绑定点击
-      container.querySelectorAll('.btn-navigate-here').forEach(function(b) {
-        bindClick(b, function() {
-          var lng = parseFloat(b.getAttribute('data-lng'));
-          var lat = parseFloat(b.getAttribute('data-lat'));
-          var nm = b.getAttribute('data-name');
-          setActive('navigation');
-          setTimeout(function() { navToTarget(lng, lat, nm); }, 80);
-        });
-      });
-    };
-
-    // ---- 先显示本地回退数据，若 API 可用则更新 ----
-    var fallback = [
-      { id: 'pumch', name: 'Peking Union Medical College Hospital', name_zh: '北京协和医院',
-        address: '1 Shuaifuyuan, Dongcheng District, Beijing', address_zh: '东城区帅府园1号',
-        phone: '+86 10 6915 6114', hours: '24h Emergency · Outpatient 8:00-17:00', rating: 4.8,
-        specialties: ['General Medicine', 'Cardiology', 'Neurology', 'Endocrinology', 'Rheumatology'],
-        languages: ['English', 'Japanese', 'Mandarin'],
-        lng: 116.4165, lat: 39.9094 },
-      { id: 'bjh', name: 'Beijing Hospital', name_zh: '北京医院',
-        address: '1 Dongdan Dahua Road, Dongcheng', address_zh: '东城区东单大华路1号',
-        phone: '+86 10 8513 2266', hours: '24h Emergency', rating: 4.6,
-        specialties: ['Geriatrics', 'Cardiology', 'Neurology', 'Oncology'],
-        languages: ['Mandarin', 'English'],
-        lng: 116.4151, lat: 39.9038 },
-      { id: 'tongren', name: 'Beijing Tongren Hospital', name_zh: '北京同仁医院',
-        address: '1 Dongjiaominxiang, Dongcheng', address_zh: '东城区东交民巷1号',
-        phone: '+86 10 5826 9988', hours: '24h Emergency', rating: 4.7,
-        specialties: ['ENT', 'Ophthalmology', 'General Medicine'],
-        languages: ['Mandarin', 'English'],
-        lng: 116.4172, lat: 39.9027 },
-      { id: 'ufh', name: 'United Family Hospital', name_zh: '和睦家医院',
-        address: '2 Jiangtai Road, Chaoyang', address_zh: '朝阳区将台路2号',
-        phone: '+86 10 5927 7000', hours: '24h Emergency & Outpatient', rating: 4.9,
-        specialties: ['Family Medicine', 'Pediatrics', 'Emergency', 'OB/GYN', 'Dental'],
-        languages: ['English', 'Mandarin', 'Japanese', 'Korean', 'French', 'German'],
-        lng: 116.4677, lat: 39.9754 },
-      { id: '301', name: '301 Hospital (PLA General Hospital)', name_zh: '解放军总医院',
-        address: '28 Fuxing Road, Haidian', address_zh: '海淀区复兴路28号',
-        phone: '+86 10 6693 7329', hours: '24h Emergency', rating: 4.7,
-        specialties: ['Trauma Surgery', 'Oncology', 'Cardiology', 'Neurology', 'Orthopedics'],
-        languages: ['Mandarin', 'English'],
-        lng: 116.2875, lat: 39.9067 }
-    ];
-
-    renderList(fallback, 'fallback');
-
-    if (!API) return;
-    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var tid = null;
-    if (controller) tid = setTimeout(function() { controller.abort(); }, 12000);
-    var opts = controller ? { signal: controller.signal } : {};
-    fetch(API + '/api/hospitals?limit=20', opts)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (tid) clearTimeout(tid);
-        var list = (data && data.hospitals) ? data.hospitals : [];
-        if (list.length) renderList(list, 'api');
-      }).catch(function() { if (tid) clearTimeout(tid); });
+    }).catch(function () { box.innerHTML = '<div class="empty-state">Could not load history.</div>'; });
   }
 
-  // ================================================================
-  // 4) 分诊（症状 → 推荐科室）
-  // ================================================================
-  bindClick(byId('btn-triage'), function() {
-    var symInput = byId('triage-input');
-    var sym = symInput ? symInput.value.trim() : '';
-    var box = byId('triage-result');
-    if (!sym) return;
-    if (box) { box.classList.remove('hidden'); box.textContent = '分析中 / Analyzing…'; }
+  /* ============================================================
+     3) Home stats (animated)
+     ============================================================ */
+  function animateCount(el, to) {
+    var dur = 1100, start = null, from = 0;
+    function tick(ts) {
+      if (start == null) start = ts;
+      var p = Math.min(1, (ts - start) / dur);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(from + (to - from) * eased).toLocaleString();
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  function renderStats(d) {
+    var box = byId('home-stats'); if (!box) return;
+    var cards = [
+      { v: 12, label: 'Languages' },
+      { v: d.medical_terms || 349, label: 'Medical terms' },
+      { v: d.hospitals || 6, label: 'Hospitals' },
+      { v: d.triage_rules || 55, label: 'Triage rules' },
+      { v: d.translations || 0, label: 'Translations served' }
+    ];
+    box.innerHTML = cards.map(function (c) {
+      return '<div class="stat"><div class="stat-num" data-to="' + c.v + '">0</div><div class="stat-label">' + esc(c.label) + '</div></div>';
+    }).join('');
+    var started = false;
+    var run = function () { if (started) return; started = true; qsa('.stat-num', box).forEach(function (el) { animateCount(el, parseInt(el.getAttribute('data-to'), 10) || 0); }); };
+    if ('IntersectionObserver' in window) {
+      var ob = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { run(); ob.disconnect(); } }); }, { threshold: 0.3 });
+      ob.observe(box);
+    } else run();
+  }
+  function loadStats() {
+    renderStats({});
+    api('/api/stats').then(renderStats).catch(function () {});
+  }
 
-    var renderTriage = function(depEn, depZh, urgent, matched) {
-      if (!box) return;
-      var tag = urgent ? 'URGENT · 紧急' : 'Recommended · 建议';
-      var matchedHtml = (matched && matched.length)
-        ? '<div class="muted small" style="margin-top:6px;">Matched / 匹配：' +
-          matched.map(function(s) { return '<span class="chip">' + s + '</span>'; }).join('') + '</div>'
-        : '';
-      box.innerHTML =
-        '<div><span class="triage-label">' + tag + '</span></div>' +
-        '<strong>Department / 科室：</strong> ' + depEn + ' / ' + depZh +
-        matchedHtml;
-    };
+  /* ============================================================
+     4) Hospitals: triage + recommendation
+     ============================================================ */
+  var _lastHospitals = [], _lastRanked = false, _lastMax = 0, _sortMode = 'match', _hospReq = 0;
 
-    // ---- 离线规则（即时显示） ----
-    var rules = {
-      'headache': { en: 'Neurology', zh: '神经内科', urgent: false },
-      'chest pain': { en: 'Cardiology', zh: '心内科', urgent: true },
-      'cough': { en: 'Pulmonology / General Medicine', zh: '呼吸内科 / 全科', urgent: false },
-      'fever': { en: 'Infectious Diseases / ER', zh: '感染科 / 急诊', urgent: false },
-      'stomach': { en: 'Gastroenterology', zh: '消化内科', urgent: false },
-      'back pain': { en: 'Orthopedics', zh: '骨科', urgent: false },
-      'skin': { en: 'Dermatology', zh: '皮肤科', urgent: false },
-      'rash': { en: 'Dermatology', zh: '皮肤科', urgent: false },
-      'dizziness': { en: 'Neurology / Cardiology', zh: '神经内科 / 心内科', urgent: false },
-      'sore throat': { en: 'ENT', zh: '耳鼻喉科', urgent: false },
-      'shortness of breath': { en: 'Pulmonology / ER', zh: '呼吸内科 / 急诊', urgent: true },
-      'nausea': { en: 'Gastroenterology', zh: '消化内科', urgent: false },
-      'vomit': { en: 'Gastroenterology', zh: '消化内科', urgent: false },
-      'joint pain': { en: 'Rheumatology / Orthopedics', zh: '风湿免疫 / 骨科', urgent: false },
-      'anxiety': { en: 'Psychiatry', zh: '精神心理科', urgent: false },
-      'bleeding': { en: 'ER', zh: '急诊', urgent: true },
-      'child': { en: 'Pediatrics', zh: '儿科', urgent: false },
-      'pregnancy': { en: 'Obstetrics', zh: '产科', urgent: false },
-      'dental': { en: 'Dentistry', zh: '口腔科', urgent: false }
-    };
-    var lower = sym.toLowerCase();
-    var matchedTerms = [];
-    var chosen = { en: 'General Medicine / 全科', zh: '全科', urgent: false };
-    var keys = Object.keys(rules).sort(function(a, b) { return b.length - a.length; });
-    keys.forEach(function(k) {
-      if (lower.indexOf(k) !== -1) {
-        matchedTerms.push(k);
-        chosen = rules[k];
-      }
+  function cleanReasons(rec, h, distKm) {
+    var out = [], seen = {};
+    function push(type, text) { if (text && !seen[text]) { seen[text] = 1; out.push({ type: type, text: text }); } }
+    (rec && rec.matched_specialties || []).slice(0, 3).forEach(function (sp) { push('spec', 'Strong in ' + sp); });
+    if (h.rating) push('ok', 'Rated ' + num(h.rating).toFixed(1) + '/5' + (h.review_count ? ' (' + Number(h.review_count).toLocaleString() + ' reviews)' : ''));
+    if (distKm != null) push('ok', distKm.toFixed(1) + ' km from you');
+    (rec && rec.reasons || []).forEach(function (r) {
+      if (/speaks your language/i.test(r)) push('ok', 'Speaks your language');
+      else if (/emergency/i.test(r)) push('ok', 'Strong emergency services');
     });
-    renderTriage(chosen.en, chosen.zh, chosen.urgent, matchedTerms);
+    return out.slice(0, 4);
+  }
+  function starStr(r) {
+    var full = Math.floor(r), half = (r - full) >= 0.5 ? 1 : 0, empty = 5 - full - half;
+    return '★'.repeat(full) + (half ? '⯨' : '') + '☆'.repeat(Math.max(0, empty));
+  }
+  function hospitalCard(h, idx, ranked, maxScore) {
+    var name = esc(h.name || h.name_zh || 'Hospital');
+    var zh = (h.name_zh && h.name_zh !== h.name) ? '<span class="zh"> · ' + esc(h.name_zh) + '</span>' : '';
+    var rating = num(h.rating);
+    var dist = (_userLoc && typeof h.lng === 'number') ? haversineKm(_userLoc, h) : null;
+    var ring = '';
+    if (ranked && h.recommendation) {
+      var pct = maxScore ? Math.max(10, Math.min(100, Math.round(h.recommendation.score / maxScore * 100))) : 60;
+      ring = '<div class="score-ring" style="--p:' + pct + '"><div class="score-inner"><div class="score-val">' + pct + '</div><div class="score-cap">match</div></div></div>';
+    }
+    var reasons = (ranked && h.recommendation) ? '<div class="match-reasons">' +
+      cleanReasons(h.recommendation, h, dist).map(function (r) {
+        return '<div class="reason ' + (r.type === 'spec' ? 'spec' : '') + '"><span class="tick">' + (r.type === 'spec' ? '◆' : '✓') + '</span><span>' + esc(r.text) + '</span></div>';
+      }).join('') + '</div>' : '';
+    var addr = (h.address_zh || h.address) ? '<div class="hospital-sub">📍 ' + esc(h.address_zh || h.address) + '</div>' : '';
+    var phone = h.phone ? '<div class="hospital-sub">☎ ' + esc(h.phone) + '</div>' : '';
+    var specs = (h.specialties || []).slice(0, 5).map(function (s) { return '<span class="chip static">' + esc(typeof s === 'string' ? s : (s.name || '')) + '</span>'; }).join('');
+    var review = (h.reviews && h.reviews.length) ? '<div class="review-quote">“' + esc(trim(h.reviews[0], 96)) + '”</div>' : '';
+    var hasLoc = typeof h.lng === 'number' && typeof h.lat === 'number';
+    var nav = hasLoc ? '<button class="btn btn-primary btn-sm js-nav" data-lng="' + h.lng + '" data-lat="' + h.lat + '" data-name="' + esc(h.name_zh || h.name) + '">Navigate →</button>' : '';
+    var ratingLine = '<div class="rating-line">' +
+      (rating ? '<span class="stars">' + starStr(rating) + '</span><span class="rating-num">' + rating.toFixed(1) + '</span>' : '') +
+      (h.review_count ? '<span class="review-count">' + Number(h.review_count).toLocaleString() + ' reviews</span>' : '') +
+      (dist != null ? '<span class="review-count">· ' + dist.toFixed(1) + ' km</span>' : '') + '</div>';
+    return '<div class="hospital-card ' + (ranked && idx === 0 ? 'top' : '') + '">' +
+      (ranked ? '<div class="rank-badge">#' + (idx + 1) + ' best match</div>' : '') +
+      '<div class="hospital-main"><div class="hospital-name">' + name + zh + '</div>' + ratingLine + addr + phone +
+      (specs ? '<div class="chips" style="margin-top:8px;">' + specs + '</div>' : '') + reasons + review + '</div>' +
+      '<div class="hospital-side">' + ring + nav + '</div></div>';
+  }
+  function renderHospitals(list, ranked, maxScore) {
+    var box = byId('hospital-list'); if (!box) return;
+    _lastHospitals = list || []; _lastRanked = !!ranked; _lastMax = maxScore || 0;
+    if (!list || !list.length) { box.innerHTML = '<div class="empty-state">No hospitals found. Try a broader symptom or department.</div>'; return; }
+    var arr = list.slice();
+    if (_sortMode === 'rating') arr.sort(function (a, b) { return (num(b.rating) || 0) - (num(a.rating) || 0); });
+    else if (_sortMode === 'distance' && _userLoc) arr.sort(function (a, b) { return (haversineKm(_userLoc, a) || 9e9) - (haversineKm(_userLoc, b) || 9e9); });
+    box.innerHTML = arr.map(function (h, i) { return hospitalCard(h, i, ranked, maxScore); }).join('');
+    qsa('.js-nav', box).forEach(function (b) {
+      on(b, 'click', function () {
+        var lng = parseFloat(b.getAttribute('data-lng')), lat = parseFloat(b.getAttribute('data-lat'));
+        setActive('navigation');
+        setTimeout(function () { Nav.setTarget(lng, lat, b.getAttribute('data-name')); }, 60);
+      });
+    });
+  }
 
-    // ---- 若有后端，则用更精确结果异步覆盖 ----
-    if (!API) return;
-    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var tid = null;
-    if (controller) tid = setTimeout(function() { controller.abort(); }, 10000);
-    var opts = controller ? { signal: controller.signal } : {};
-    fetch(API + '/api/triage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symptoms: sym, language: 'en' }),
-      ...(Object.keys(opts).length ? opts : {})
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (tid) clearTimeout(tid);
-        if (data && (data.department_en || data.department_zh)) {
-          renderTriage(data.department_en || chosen.en, data.department_zh || chosen.zh,
-            !!data.urgent, data.matched_symptoms || matchedTerms);
-        }
-      }).catch(function() { if (tid) clearTimeout(tid); });
+  function loadHospitals() {
+    var box = byId('hospital-list'); if (!box) return;
+    var myReq = ++_hospReq;
+    box.innerHTML = '<div class="empty-state"><span class="spinner"></span> Loading hospitals…</div>';
+    renderHospitals(FALLBACK_HOSPITALS, false, 0);
+    api('/api/hospitals?limit=12').then(function (d) {
+      if (myReq !== _hospReq) return; // a newer request superseded this one
+      if (d && d.hospitals && d.hospitals.length) renderHospitals(d.hospitals, false, 0);
+    }).catch(function () {});
+  }
 
-    loadHospitals();
+  function runRecommend() {
+    var sym = (byId('triage-input') || {}).value; sym = (sym || '').trim();
+    var spec = (byId('specialty-filter') || {}).value || '';
+    var banner = byId('triage-result'), box = byId('hospital-list');
+    if (!sym && !spec) { toast('Describe your symptoms first', 'warn'); return; }
+    if (box) box.innerHTML = '<div class="empty-state"><span class="spinner"></span> Matching hospitals…</div>';
+    if (banner) banner.classList.add('hidden');
+    _sortMode = 'match'; syncSortUI();
+    var myReq = ++_hospReq;
+    var body = { symptoms: sym || spec, city: '北京', limit: 10 };
+    if (spec) body.specialty_override = spec;
+    if (currentUser && currentUser.language) body.language = currentUser.language;
+    api('/api/recommendations', { method: 'POST', body: body, timeout: 18000 }).then(function (d) {
+      if (myReq !== _hospReq) return; // superseded by a newer query
+      var tr = d.triage || {};
+      if (banner) {
+        banner.className = 'triage-banner' + (tr.urgent ? ' urgent' : '');
+        banner.classList.remove('hidden');
+        banner.innerHTML = '<span class="triage-tag">' + (tr.urgent ? '🚨 URGENT' : '✓ Recommended department') + '</span>' +
+          '<h4>' + esc(tr.department_en || 'General Medicine') + ' <span class="dept-zh">' + esc(tr.department_zh || '') + '</span></h4>' +
+          (tr.urgent ? '<p style="margin:4px 0 0;color:var(--danger);font-weight:600;">If this is an emergency, call 120 now.</p>' : '') +
+          ((tr.matched_symptoms && tr.matched_symptoms.length) ? '<div class="chips" style="margin-top:8px;">' + tr.matched_symptoms.slice(0, 6).map(function (s) { return '<span class="chip static">' + esc(s) + '</span>'; }).join('') + '</div>' : '');
+      }
+      var list = d.hospitals || [];
+      var maxScore = list.reduce(function (m, h) { return Math.max(m, (h.recommendation && h.recommendation.score) || 0); }, 0);
+      renderHospitals(list, true, maxScore);
+    }).catch(function (e) {
+      if (myReq !== _hospReq) return; // superseded — don't clobber a newer result
+      if (banner) { banner.className = 'triage-banner'; banner.classList.remove('hidden'); banner.innerHTML = '<span class="triage-tag">Heads up</span><h4 style="font-size:15px;">Recommendation service is waking up</h4><p class="muted small" style="margin:4px 0 0;">Showing all hospitals meanwhile. Try again in a moment.</p>'; }
+      loadHospitals();
+    });
+  }
+  on(byId('btn-triage'), 'click', runRecommend);
+  on(byId('triage-input'), 'keydown', function (e) { if (e.key === 'Enter') runRecommend(); });
+  on(byId('btn-use-location'), 'click', function () {
+    var b = this; b.disabled = true; b.textContent = '📍 Locating…';
+    getLocation(function () { b.disabled = false; b.textContent = '📍 Location set'; toast('Location set — distances added', 'ok'); renderHospitals(_lastHospitals, _lastRanked, _lastMax); },
+      function (m) { b.disabled = false; b.textContent = '📍 Use my location for distance'; toast('Location: ' + m, 'err'); });
+  });
+  function syncSortUI() { qsa('#sort-seg button').forEach(function (b) { b.classList.toggle('active', b.dataset.sort === _sortMode); }); }
+  qsa('#sort-seg button').forEach(function (b) {
+    on(b, 'click', function () {
+      if (b.dataset.sort === 'distance' && !_userLoc) { toast('Tap “Use my location” first', 'warn'); return; }
+      _sortMode = b.dataset.sort; syncSortUI(); renderHospitals(_lastHospitals, _lastRanked, _lastMax);
+    });
   });
 
-  // ================================================================
-  // 5) 导航（内置高德地图 JS API，不跳外部）
-  // ================================================================
-  var _navMap = null;       // AMap 实例
-  var _navKey = null;       // 高德 JS key（从 /api/amap/config 获取）
-  var _navOrigin = null;    // {lng, lat}
-  var _navTarget = null;    // {lng, lat, name}
-  var _navMode = 'walking'; // walking | driving | transit
+  /* ============================================================
+     5) Navigation — AMap with security code, drawn route + steps
+     ============================================================ */
+  var Nav = (function () {
+    var DEFAULT_ORIGIN = { lng: 116.4074, lat: 39.9042 };
+    var map = null, ready = false, inited = false, confFetched = false;
+    var jsKey = '', secCode = '', hasSec = false;
+    var origin = { lng: DEFAULT_ORIGIN.lng, lat: DEFAULT_ORIGIN.lat }, originIsGps = false;
+    var target = null, mode = 'walking', list = [], city = '北京';
 
-  function initNavigation() {
-    var sel = byId('nav-hospital');
-    var modeSel = byId('nav-mode');
-    var locateBtn = byId('nav-locate');
-    var originBox = byId('nav-origin');
-    var mapDiv = byId('nav-map');
-    var routeBox = byId('nav-route');
+    function setOriginText() {
+      var el = byId('nav-origin'); if (!el) return;
+      el.innerHTML = originIsGps
+        ? '📍 Origin / 起点：your current location (' + origin.lng.toFixed(4) + ', ' + origin.lat.toFixed(4) + ')'
+        : '📍 Origin / 起点：Beijing city center (default) · tap “Use my location”.';
+    }
 
-    if (!sel || !mapDiv) return;
-
-    // ---- 1) 获取 AMap JS Key ----
-    var fetchAmapConfig = function(onGot) {
-      if (_navKey) { onGot(_navKey); return; }
-      if (!API) { onGot(null); return; }
-      fetch(API + '/api/amap/config').then(function(r) { return r.json(); })
-        .then(function(data) {
-          var k = data && (data.js_key || data.jsKey || data.key);
-          _navKey = k || null;
-          onGot(_navKey);
-        }).catch(function() { onGot(null); });
-    };
-
-    // ---- 2) 加载高德 JS API ----
-    var loadAmapJs = function(key, onReady) {
-      if (window.AMap) { onReady(); return; }
-      var script = document.createElement('script');
-      script.src = 'https://webapi.amap.com/maps?v=2.0&key=' +
-        encodeURIComponent(key || '') +
-        '&plugin=AMap.Driving,AMap.Walking,AMap.Transfer,AMap.Geolocation,AMap.Scale,AMap.ToolBar';
-      script.onerror = function() { onReady(new Error('AMap load failed')); };
-      script.onload = function() {
-        if (!window.AMap) { onReady(new Error('AMap not loaded')); return; }
-        window.AMap._securityCode = key;
-        onReady();
-      };
-      document.head.appendChild(script);
-    };
-
-    // ---- 3) 填充医院下拉 ----
-    var fillHospitalDropdown = function(list) {
-      if (!sel) return;
+    function fillDropdown() {
+      var sel = byId('nav-hospital'); if (!sel) return;
       sel.innerHTML = '';
-      list.forEach(function(h, idx) {
+      list.forEach(function (h, i) {
         if (typeof h.lng !== 'number' || typeof h.lat !== 'number') return;
-        var o = document.createElement('option');
-        o.value = String(idx);
-        o.textContent = (h.name_zh || h.name || '医院') + ' / ' + (h.name || '');
+        var o = document.createElement('option'); o.value = String(i);
+        o.textContent = (h.name_zh || h.name || 'Hospital') + (h.name && h.name_zh && h.name !== h.name_zh ? ' / ' + h.name : '');
         sel.appendChild(o);
       });
-    };
+      syncDropdown();
+    }
+    function syncDropdown() {
+      var sel = byId('nav-hospital'); if (!sel || !target) return;
+      var best = -1, bestD = 9e9;
+      list.forEach(function (h, i) {
+        var d = Math.abs((h.lng || 0) - target.lng) + Math.abs((h.lat || 0) - target.lat);
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      if (best >= 0 && bestD < 0.01) sel.value = String(best);
+    }
 
-    // ---- 4) 渲染：医院卡片 + 地图 + 路线 ----
-    var renderNavOutput = function(hospital, mode) {
-      var cardBox = byId('nav-output-cards');
-      if (cardBox && hospital) {
-        var name = hospital.name || '';
-        var nameZh = hospital.name_zh || '';
-        var addr = hospital.address_zh || hospital.address || '';
-        var phone = hospital.phone || '';
-        var hours = hospital.hours || '';
-        var rating = typeof hospital.rating === 'number' ? hospital.rating.toFixed(1) : '—';
-        cardBox.innerHTML =
-          '<div class="card" style="margin-bottom:14px;">' +
-          '<h4 style="margin-top:0;">' + name + (nameZh ? ' / ' + nameZh : '') + '</h4>' +
-          (addr ? '<div class="muted small" style="margin:4px 0;">📍 ' + addr + '</div>' : '') +
-          (phone ? '<div class="muted small" style="margin:4px 0;">☎ ' + phone + '</div>' : '') +
-          (hours ? '<div class="muted small" style="margin:4px 0;">🕒 ' + hours + '</div>' : '') +
-          '<div class="muted small" style="margin-top:6px;">Rating / 评分：<strong>' + rating + '</strong></div>' +
-          '</div>';
+    function loadList() {
+      list = FALLBACK_HOSPITALS.slice(); fillDropdown();
+      if (!target && list[0]) target = { lng: list[0].lng, lat: list[0].lat, name: list[0].name_zh || list[0].name };
+      api('/api/hospitals?limit=20').then(function (d) {
+        var valid = (d && d.hospitals || []).filter(function (h) { return typeof h.lng === 'number' && typeof h.lat === 'number'; });
+        if (valid.length) { list = valid; fillDropdown(); if (!target) { target = { lng: list[0].lng, lat: list[0].lat, name: list[0].name_zh || list[0].name }; } draw(); }
+      }).catch(function () {});
+    }
+
+    function ensureAmap() {
+      if (ready) { draw(); return; }
+      if (confFetched) { return; }
+      confFetched = true;
+      if (!API) { mapUnavailable('Backend not configured.'); draw(); return; }
+      api('/api/amap/config').then(function (cfg) {
+        jsKey = cfg.js_key || ''; secCode = cfg.security_code || ''; hasSec = !!cfg.has_security_code;
+        if (!jsKey) { mapUnavailable('AMap JS key not configured.'); draw(); return; }
+        if (secCode) { window._AMapSecurityConfig = { securityJsCode: secCode }; }
+        var s = document.createElement('script');
+        s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(jsKey) +
+                '&plugin=AMap.Walking,AMap.Driving,AMap.Transfer,AMap.Geolocation,AMap.Scale,AMap.ToolBar';
+        s.onload = function () { if (window.AMap) { ready = true; draw(); } else { mapUnavailable(); draw(); } };
+        s.onerror = function () { mapUnavailable('Failed to load AMap.'); draw(); };
+        document.head.appendChild(s);
+      }).catch(function () { mapUnavailable(); draw(); });
+    }
+
+    function mapUnavailable(msg) {
+      var m = byId('nav-map'); if (!m) return;
+      m.innerHTML = '<div class="map-empty"><div class="big">🧭</div><div>' + esc(msg || 'Live map unavailable.') +
+        '</div><div class="small muted">Use the buttons below to open this place in a maps app. 用下方按钮在地图 App 中打开。</div></div>';
+    }
+
+    function markerPin(color, label) {
+      var d = document.createElement('div');
+      d.style.cssText = 'transform:translate(-50%,-100%);font:600 11px var(--font-sans,sans-serif);';
+      d.innerHTML = '<div style="background:' + color + ';color:#fff;padding:3px 9px;border-radius:11px;box-shadow:0 4px 10px rgba(0,0,0,.25);white-space:nowrap;">' + esc(label) + '</div>' +
+        '<div style="width:2px;height:9px;background:' + color + ';margin:0 auto;"></div>';
+      return d;
+    }
+
+    function draw() {
+      renderHandoff();
+      if (!ready || !window.AMap) { textFallback(); return; }
+      var m = byId('nav-map'); if (!m) return;
+      if (m.querySelector('.map-empty')) m.innerHTML = '';
+      if (!map) {
+        map = new AMap.Map(m, { zoom: 12, center: [origin.lng, origin.lat], viewMode: '2D', mapStyle: 'amap://styles/whitesmoke' });
+        try { map.addControl(new AMap.Scale()); map.addControl(new AMap.ToolBar({ position: 'RB' })); } catch (e) {}
       }
-
-      if (hospital && typeof hospital.lng === 'number' && typeof hospital.lat === 'number') {
-        _navTarget = { lng: hospital.lng, lat: hospital.lat, name: hospital.name_zh || hospital.name };
-      }
-      if (mode) _navMode = mode;
-      drawMap();
-    };
-
-    // ---- 5) 绘制地图 + 路线 ----
-    var drawMap = function() {
-      if (!window.AMap || !byId('nav-map')) return;
-      var origin = _navOrigin || { lng: 116.4074, lat: 39.9042 };  // 默认：北京天安门
-      var target = _navTarget;
-
-      if (!_navMap) {
-        _navMap = new window.AMap.Map(byId('nav-map'), {
-          zoom: 12,
-          center: [origin.lng, origin.lat],
-          viewMode: '2D'
-        });
-        try {
-          _navMap.addControl(new window.AMap.Scale());
-          _navMap.addControl(new window.AMap.ToolBar({ position: 'RB' }));
-        } catch(e) {}
-      }
-
-      // 清空旧覆盖物
-      _navMap.clearMap();
-
-      // 起点 / 终点 标记
-      new window.AMap.Marker({ position: [origin.lng, origin.lat], title: '起点 / Origin', map: _navMap });
+      map.clearMap();
+      new AMap.Marker({ position: [origin.lng, origin.lat], map: map, content: markerPin('#2F7D6E', 'You'), offset: new AMap.Pixel(0, 0) });
       if (target) {
-        new window.AMap.Marker({ position: [target.lng, target.lat], title: target.name || '医院', map: _navMap });
-        // 路线规划
-        planRoute(origin, target, _navMode);
-        // 自适应视野
-        try {
-          _navMap.setFitView();
-        } catch(e) {
-          _navMap.setZoomAndCenter(13, [(origin.lng + target.lng)/2, (origin.lat + target.lat)/2]);
-        }
+        new AMap.Marker({ position: [target.lng, target.lat], map: map, content: markerPin('#D97757', trim(target.name, 14)), offset: new AMap.Pixel(0, 0) });
+        plan();
+        try { map.setFitView(); } catch (e) {}
       } else {
-        _navMap.setZoomAndCenter(12, [origin.lng, origin.lat]);
+        map.setZoomAndCenter(12, [origin.lng, origin.lat]);
       }
+      setOriginText();
+    }
 
-      if (byId('nav-origin') && origin) {
-        byId('nav-origin').textContent = '📍 Origin / 起点：(' + origin.lng.toFixed(4) + ', ' + origin.lat.toFixed(4) + ')';
-      }
-    };
-
-    var planRoute = function(origin, target, mode) {
-      var box = byId('nav-route');
-      if (!box || !window.AMap) return;
-      box.innerHTML = '<p class="muted small">规划路线中 / Planning route…</p>';
-
-      var modeText = mode === 'driving' ? '驾车 / Driving' :
-                     mode === 'transit' ? '公交 / Transit' : '步行 / Walking';
-
-      var showRouteInfo = function(distanceMeters, durationSec, steps) {
-        var km = (distanceMeters / 1000).toFixed(2);
-        var min = Math.max(1, Math.round(durationSec / 60));
-        var stepHtml = '';
-        if (steps && steps.length) {
-          stepHtml = '<ol style="line-height:1.8; padding-left:20px; margin:10px 0 0;">' +
-            steps.slice(0, 20).map(function(s, i) {
-              var instruction = s.instruction || s.text || s.name || ('Step ' + (i+1));
-              var dist = s.distance ? ' (' + (s.distance > 1000 ? (s.distance/1000).toFixed(2) + ' km' : s.distance + ' m') + ')' : '';
-              return '<li>' + instruction + dist + '</li>';
-            }).join('') +
-            '</ol>';
-        }
-        box.innerHTML =
-          '<div class="card">' +
-          '<h4 style="margin-top:0;">Route / 路线 · ' + modeText + '</h4>' +
-          '<div class="muted small" style="margin:4px 0;">' +
-          '<strong>Distance / 距离：</strong>' + km + ' km &nbsp;&nbsp;|&nbsp;&nbsp;' +
-          '<strong>Duration / 用时：</strong>约 ' + min + ' 分钟' +
-          '</div>' + stepHtml +
-          '</div>';
+    function plan() {
+      if (!target || !window.AMap || !map) return;
+      var routeBox = byId('nav-route'); if (routeBox) routeBox.innerHTML = '<div class="muted small"><span class="spinner"></span> Planning route…</div>';
+      var ctor = mode === 'driving' ? 'Driving' : mode === 'transit' ? 'Transfer' : 'Walking';
+      var go = function () {
+        var planner;
+        try {
+          var opts = { map: map, hideMarkers: true, autoFitView: true };
+          if (mode === 'transit') planner = new AMap.Transfer({ map: map, city: city, hideMarkers: true, autoFitView: true });
+          else planner = new AMap[ctor](opts);
+        } catch (e) { textFallback('Route plugin unavailable.'); return; }
+        planner.search([origin.lng, origin.lat], [target.lng, target.lat], function (status, result) {
+          if (status !== 'complete') { textFallback(); return; }
+          parseRoute(result);
+        });
       };
+      if (AMap[ctor]) go(); else AMap.plugin(['AMap.' + ctor], go);
+    }
 
-      var showFallback = function() {
-        // 高德插件不可用（如无 key 或 配额不足）→ 返回直线路线估算
-        var dx = (target.lng - origin.lng) * 111 * Math.cos((target.lat + origin.lat) / 2 * Math.PI / 180);
-        var dy = (target.lat - origin.lat) * 111;
-        var km = Math.sqrt(dx*dx + dy*dy);
-        var speed = mode === 'driving' ? 35 : (mode === 'transit' ? 20 : 5);
-        var min = Math.max(1, Math.round(km / speed * 60));
-        box.innerHTML =
-          '<div class="card">' +
-          '<h4 style="margin-top:0;">Estimated route / 估算路线 · ' + modeText + '</h4>' +
-          '<div class="muted small" style="margin:6px 0;">Straight-line / 直线距离：' + km.toFixed(2) + ' km · 估算用时 ~ ' + min + ' 分钟</div>' +
-          '<div class="muted small">提示：配置高德 JS API key 可启用真正路线规划 / Configure AMap JS key to enable real routing.</div>' +
-          '</div>';
-      };
-
+    function parseRoute(result) {
+      var distance = 0, time = 0, steps = [];
       try {
-        var pluginName = mode === 'driving' ? 'AMap.Driving' :
-                         mode === 'transit' ? 'AMap.Transfer' : 'AMap.Walking';
-        if (!window.AMap[pluginName]) {
-          // 尝试动态加载插件
-          window.AMap.plugin([pluginName], function() {
-            if (!window.AMap[pluginName]) { showFallback(); return; }
-            runPlugin();
+        if (mode === 'transit' && result.plans && result.plans.length) {
+          var pl = result.plans[0]; distance = pl.distance || 0; time = pl.time || 0;
+          (pl.segments || []).forEach(function (seg) {
+            if (seg.transit_mode === 'WALK' && seg.transit) { steps.push({ t: 'Walk ' + Math.round((seg.transit.distance || 0)) + ' m', d: seg.transit.distance || 0 }); }
+            else if (seg.transit && seg.transit.lines && seg.transit.lines.length) { steps.push({ t: seg.transit.lines[0].name, d: seg.transit.distance || 0 }); }
+            else if (seg.instruction) steps.push({ t: seg.instruction, d: 0 });
           });
-        } else {
-          runPlugin();
+        } else if (result.routes && result.routes.length) {
+          var rt = result.routes[0]; distance = rt.distance || 0; time = rt.time || 0;
+          (rt.steps || []).forEach(function (s) { steps.push({ t: s.instruction || s.start_road || 'Continue', d: s.distance || 0 }); });
         }
-        function runPlugin() {
-          var opts = { map: _navMap, hideMarkers: true, autoFitView: true };
-          var planner;
-          try {
-            if (mode === 'driving') planner = new window.AMap.Driving(opts);
-            else if (mode === 'transit') planner = new window.AMap.Transfer({
-              city: '北京', map: _navMap, panel: null
-            });
-            else planner = new window.AMap.Walking(opts);
-          } catch(e) { showFallback(); return; }
+      } catch (e) {}
+      renderSummary(distance, time, false);
+      renderSteps(steps);
+    }
 
-          planner.search(
-            new window.AMap.LngLat(origin.lng, origin.lat),
-            new window.AMap.LngLat(target.lng, target.lat),
-            function(status, result) {
-              if (status !== 'complete') { showFallback(); return; }
-              var distance = 0, duration = 0, steps = [];
-              try {
-                if (result.routes && result.routes.length) {
-                  var route = result.routes[0];
-                  distance = route.distance || 0;
-                  duration = route.time || 0;
-                  var rawSteps = route.steps || (route.via_stops ? route.via_stops : []);
-                  if (mode === 'transit' && result.plans && result.plans.length) {
-                    var plan = result.plans[0];
-                    distance = plan.distance || 0;
-                    duration = plan.time || 0;
-                    steps = (plan.segments || []).map(function(seg, i) {
-                      var line = seg.transit_line || {};
-                      var name = line.name || ('步行段 ' + (i+1));
-                      var walkDist = seg.walk_distance || 0;
-                      var lineDist = (line.distance || 0);
-                      return { instruction: name + '（步行 ' + (walkDist>0?Math.round(walkDist/1000*10)/10+' km':'') + '）', distance: walkDist + lineDist };
-                    });
-                  } else {
-                    steps = rawSteps.map(function(s, i) {
-                      return { instruction: (i+1) + '. ' + (s.instruction || s.name || '继续前行'), distance: s.distance || 0 };
-                    });
-                  }
-                }
-              } catch(e) {}
-              showRouteInfo(distance, duration, steps);
-            }
-          );
+    function textFallback(note) {
+      var km = haversineKm(origin, target);
+      var speed = mode === 'driving' ? 30 : mode === 'transit' ? 18 : 4.8;
+      var min = km != null ? Math.max(1, Math.round(km / speed * 60)) : 0;
+      renderSummary(km != null ? km * 1000 : 0, min * 60, true);
+      var box = byId('nav-route');
+      if (box) box.innerHTML = '<div class="empty-state">' + (note ? esc(note) + '<br>' : '') +
+        'Turn-by-turn needs the AMap security key. Distance/time are straight-line estimates — use the buttons above to navigate in a maps app.<br><span class="muted small">配置高德安全密钥后即可在页面内显示真实路线与转向步骤。</span></div>';
+    }
+
+    function renderSummary(distM, durSec, estimated) {
+      var box = byId('nav-summary'); if (!box) return;
+      var km = (distM / 1000), min = Math.max(1, Math.round(durSec / 60));
+      var modeTxt = mode === 'driving' ? 'Driving 驾车' : mode === 'transit' ? 'Transit 公交' : 'Walking 步行';
+      box.innerHTML =
+        '<div class="nav-stat"><div class="k">' + (estimated ? 'Straight-line 直线' : 'Distance 距离') + '</div><div class="v">' + km.toFixed(2) + '<span class="unit"> km</span></div></div>' +
+        '<div class="nav-stat"><div class="k">' + (estimated ? 'Est. time 估算' : 'Duration 用时') + '</div><div class="v">' + min + '<span class="unit"> min</span></div></div>' +
+        '<div class="nav-stat"><div class="k">Mode 方式</div><div class="v" style="font-size:18px;">' + modeTxt + '</div></div>';
+    }
+
+    function renderSteps(steps) {
+      var box = byId('nav-route'); if (!box) return;
+      if (!steps || !steps.length) { box.innerHTML = ''; return; }
+      var rows = steps.slice(0, 24).map(function (s, i) {
+        var dist = s.d ? (s.d > 1000 ? (s.d / 1000).toFixed(1) + ' km' : Math.round(s.d) + ' m') : '';
+        return '<div class="step-item"><div class="step-pin">' + (i + 1) + '</div><div class="step-body"><div class="step-instruction">' + esc(s.t) + '</div>' + (dist ? '<div class="step-dist">' + dist + '</div>' : '') + '</div></div>';
+      }).join('');
+      box.innerHTML = '<h4>🧭 Turn-by-turn / 转向步骤</h4>' + rows +
+        '<div class="step-item is-endpoint"><div class="step-pin">★</div><div class="step-body"><div class="step-instruction">Arrive at ' + esc(target ? target.name : 'destination') + '</div></div></div>';
+    }
+
+    function renderHandoff() {
+      var box = byId('nav-handoff'); if (!box || !target) { if (box) box.innerHTML = ''; return; }
+      var lng = target.lng, lat = target.lat, name = encodeURIComponent(target.name || 'Hospital');
+      var links = [
+        { t: 'Apple', u: 'https://maps.apple.com/?daddr=' + lat + ',' + lng + '&q=' + name },
+        { t: 'Google', u: 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng },
+        { t: '高德 AMap', u: 'https://uri.amap.com/navigation?to=' + lng + ',' + lat + ',' + name + '&mode=' + (mode === 'driving' ? 'car' : mode === 'transit' ? 'bus' : 'walk') + '&coordinate=gaode' },
+        { t: '百度 Baidu', u: 'https://api.map.baidu.com/direction?destination=' + lat + ',' + lng + '&mode=' + (mode === 'driving' ? 'driving' : mode === 'transit' ? 'transit' : 'walking') + '&output=html' }
+      ];
+      box.innerHTML = '<span class="label">Open in 用地图App打开：</span>' + links.map(function (l) {
+        return '<a class="handoff" href="' + l.u + '" target="_blank" rel="noopener">🧭 ' + esc(l.t) + '</a>';
+      }).join('');
+    }
+
+    // public
+    return {
+      enter: function () {
+        if (!inited) {
+          inited = true;
+          on(byId('nav-hospital'), 'change', function () { var h = list[parseInt(this.value, 10)]; if (h) { target = { lng: h.lng, lat: h.lat, name: h.name_zh || h.name }; draw(); } });
+          on(byId('nav-mode'), 'change', function () { mode = this.value; draw(); });
+          on(byId('nav-locate'), 'click', function () {
+            var b = this; b.disabled = true; b.textContent = '📍 Locating…';
+            getLocation(function () { b.disabled = false; b.textContent = '📍 Location set'; toast('Using your location', 'ok'); },
+              function (m) { b.disabled = false; b.textContent = '📍 Use my location'; toast('Location: ' + m, 'err'); });
+          });
+          loadList(); ensureAmap(); setOriginText();
+        } else { draw(); }
+      },
+      setTarget: function (lng, lat, name) {
+        target = { lng: +lng, lat: +lat, name: name || 'Hospital' };
+        if (!inited) { this.enter(); } else { syncDropdown(); ensureAmap(); draw(); }
+      },
+      setOriginFromGps: function (gps) {
+        var apply = function (lng, lat) { origin = { lng: lng, lat: lat }; originIsGps = true; setOriginText(); draw(); };
+        if (window.AMap && AMap.convertFrom) {
+          try { AMap.convertFrom([gps.lng, gps.lat], 'gps', function (st, res) {
+            if (st === 'complete' && res.locations && res.locations.length) { var p = res.locations[0]; apply(p.lng, p.lat); }
+            else apply(gps.lng, gps.lat);
+          }); return; } catch (e) {}
         }
-      } catch(e) {
-        showFallback();
+        apply(gps.lng, gps.lat);
       }
     };
+  })();
 
-    // ---- 6) 事件绑定（只绑一次）----
-    if (sel.dataset.bound !== '1') {
-      sel.dataset.bound = '1';
-      bindChange(sel, function() {
-        var list = JSON.parse(sel.getAttribute('data-list') || '[]');
-        var h = list[parseInt(sel.value, 10)];
-        if (h) renderNavOutput(h, _navMode);
-      });
+  /* ============================================================
+     6) Medication
+     ============================================================ */
+  var Med = (function () {
+    var lib = [];
+    function tagFor(m) { return m.rx_required ? '<span class="pill-tag pill-rx">Rx 处方</span>' : '<span class="pill-tag pill-otc">OTC 非处方</span>'; }
+    function showInfo(m) {
+      var box = byId('med-info'); if (!box) return;
+      if (!m) { box.innerHTML = '<div class="empty-state">Pick a medication to see details.</div>'; return; }
+      var ul = function (arr) { return (arr && arr.length) ? '<ul>' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="muted small">—</p>'; };
+      box.innerHTML = '<div class="drug-info"><div class="drug-name">' + esc(m.name) + tagFor(m) + '</div>' +
+        '<div class="muted small">' + esc(m.name_zh || '') + ' · ' + esc(m.category || '') + (m.price_cny ? ' · ¥' + m.price_cny : '') + '</div>' +
+        '<h5>Dosage 用法用量</h5><p>' + esc(m.dosage || m.dosage_zh || '—') + '</p>' +
+        '<h5>Warnings 警告</h5>' + ul(m.warnings && m.warnings.length ? m.warnings : m.warnings_zh) +
+        '<h5>Side effects 副作用</h5>' + ul(m.side_effects) + '</div>';
     }
-    if (modeSel && modeSel.dataset.bound !== '1') {
-      modeSel.dataset.bound = '1';
-      bindChange(modeSel, function() {
-        _navMode = modeSel.value;
-        var list = JSON.parse(sel.getAttribute('data-list') || '[]');
-        var h = list[parseInt(sel.value, 10)];
-        if (h) renderNavOutput(h, _navMode);
-      });
+    function loadRecords() {
+      var box = byId('med-list'); if (!box) return;
+      if (!token) { box.innerHTML = '<div class="empty-state">Sign in to save medications and reminders.</div>'; return; }
+      api('/api/medications/record', { auth: true }).then(function (rows) {
+        if (!rows || !rows.length) { box.innerHTML = '<div class="empty-state">No medications saved yet.</div>'; return; }
+        box.innerHTML = rows.map(function (r) {
+          var times = (r.reminder_times || '').split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+          return '<div class="list-item"><div><strong>' + esc(r.custom_name || r.medication_key) + '</strong>' +
+            (r.dosage ? '<div class="meta">' + esc(r.dosage) + '</div>' : '') +
+            (r.notes ? '<div class="meta">' + esc(r.notes) + '</div>' : '') +
+            (times.length ? '<div class="when">' + times.map(function (t) { return '<span class="time-pill">⏰ ' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
+            '</div><button class="btn btn-danger btn-sm js-del" data-id="' + r.id + '">Remove</button></div>';
+        }).join('');
+        qsa('.js-del', box).forEach(function (b) {
+          on(b, 'click', function () {
+            api('/api/medications/record/' + b.getAttribute('data-id'), { method: 'DELETE', auth: true })
+              .then(function () { toast('Removed', 'ok'); loadRecords(); }).catch(function (e) { toast(e.message, 'err'); });
+          });
+        });
+      }).catch(function () { box.innerHTML = '<div class="empty-state">Could not load your list.</div>'; });
     }
-    if (locateBtn && locateBtn.dataset.bound !== '1') {
-      locateBtn.dataset.bound = '1';
-      bindClick(locateBtn, function() {
-        // 先尝试浏览器 Geolocation
-        if (!navigator.geolocation) {
-          alert('Geolocation is not available in this browser.');
-          return;
-        }
-        locateBtn.textContent = '定位中 / Locating…';
-        navigator.geolocation.getCurrentPosition(function(pos) {
-          _navOrigin = { lng: pos.coords.longitude, lat: pos.coords.latitude };
-          locateBtn.textContent = '使用我的位置 / Use my location';
-          var list = JSON.parse(sel.getAttribute('data-list') || '[]');
-          var h = list[parseInt(sel.value, 10)];
-          if (h) renderNavOutput(h, _navMode);
-        }, function(err) {
-          locateBtn.textContent = '使用我的位置 / Use my location';
-          alert('Location access denied or unavailable: ' + err.message);
-        }, { timeout: 15000, enableHighAccuracy: true });
-      });
-    }
-
-    // ---- 7) 填充数据 ----
-    var fallbackList = [
-      { name: 'Peking Union Medical College Hospital', name_zh: '北京协和医院',
-        address: '1 Shuaifuyuan, Dongcheng District', address_zh: '东城区帅府园1号',
-        phone: '+86 10 6915 6114', hours: '24h Emergency · 8:00-17:00', rating: 4.8,
-        lng: 116.4165, lat: 39.9094 },
-      { name: 'Beijing Hospital', name_zh: '北京医院',
-        address: '1 Dongdan Dahua Road, Dongcheng', address_zh: '东城区东单大华路1号',
-        phone: '+86 10 8513 2266', hours: '24h Emergency', rating: 4.6,
-        lng: 116.4151, lat: 39.9038 },
-      { name: 'Beijing Tongren Hospital', name_zh: '北京同仁医院',
-        address: '1 Dongjiaominxiang, Dongcheng', address_zh: '东城区东交民巷1号',
-        phone: '+86 10 5826 9988', hours: '24h Emergency', rating: 4.7,
-        lng: 116.4172, lat: 39.9027 },
-      { name: 'United Family Hospital', name_zh: '和睦家医院',
-        address: '2 Jiangtai Road, Chaoyang', address_zh: '朝阳区将台路2号',
-        phone: '+86 10 5927 7000', hours: '24h', rating: 4.9,
-        lng: 116.4677, lat: 39.9754 },
-      { name: '301 Hospital', name_zh: '解放军总医院',
-        address: '28 Fuxing Road, Haidian', address_zh: '海淀区复兴路28号',
-        phone: '+86 10 6693 7329', hours: '24h Emergency', rating: 4.7,
-        lng: 116.2875, lat: 39.9067 }
-    ];
-
-    sel.setAttribute('data-list', JSON.stringify(fallbackList));
-    fillHospitalDropdown(fallbackList);
-    renderNavOutput(fallbackList[0], _navMode);
-
-    // 尝试从后端 API 更新列表（带更多真实数据 + 坐标）
-    if (!API) return;
-    fetch(API + '/api/hospitals?limit=20').then(function(r) { return r.json(); })
-      .then(function(data) {
-        var list = (data && data.hospitals && data.hospitals.length) ? data.hospitals : null;
-        if (list) {
-          var valid = list.filter(function(h) { return typeof h.lng === 'number' && typeof h.lat === 'number'; });
-          if (valid.length) {
-            sel.setAttribute('data-list', JSON.stringify(valid));
-            fillHospitalDropdown(valid);
-            renderNavOutput(valid[0], _navMode);
+    return {
+      init: function () {
+        var sel = byId('med-picker');
+        api('/api/medications').then(function (d) {
+          lib = (d && d.medications) || [];
+          if (sel) {
+            sel.innerHTML = '<option value="">— choose —</option>' + lib.map(function (m) { return '<option value="' + esc(m.key) + '">' + esc(m.name) + ' / ' + esc(m.name_zh || '') + '</option>'; }).join('');
+            on(sel, 'change', function () { showInfo(lib.filter(function (m) { return m.key === sel.value; })[0]); });
           }
-        }
-      }).catch(function() {});
+        }).catch(function () {});
+        on(byId('btn-add-med'), 'click', function () {
+          if (!token) { openAuth('login'); toast('Please log in first', 'warn'); return; }
+          var key = (byId('med-picker') || {}).value || '';
+          if (!key) { toast('Pick a medication from the library', 'warn'); return; }
+          var body = {
+            medication_key: key, custom_name: (byId('med-custom') || {}).value || '',
+            dosage: (byId('med-dosage') || {}).value || '', reminder_times: (byId('med-times') || {}).value || '',
+            notes: (byId('med-notes') || {}).value || ''
+          };
+          api('/api/medications/record', { method: 'POST', body: body, auth: true }).then(function () {
+            toast('Saved to your list', 'ok');
+            ['med-custom', 'med-dosage', 'med-times', 'med-notes'].forEach(function (id) { var el = byId(id); if (el) el.value = ''; });
+            loadRecords();
+          }).catch(function (e) { toast(e.message, 'err'); });
+        });
+        loadRecords();
+      },
+      reload: loadRecords
+    };
+  })();
 
-    // ---- 异步获取 AMap JS key + 加载地图 ----
-    fetchAmapConfig(function(key) {
-      loadAmapJs(key, function(err) {
-        if (err) {
-          console.warn('AMap JS unavailable:', err.message || err);
-          // 仍然可以显示路线估算（无地图），但尝试让 mapDiv 显示友好提示
-          if (mapDiv) {
-            mapDiv.innerHTML = '<div style="padding:40px; text-align:center; color:#888;">' +
-              '🗺 Map preview unavailable (AMap JS key not configured).<br>' +
-              '<span class="small muted">未配置高德 JS key，使用文本路线预览。</span></div>';
-          }
-        } else {
-          drawMap();
-        }
-      });
-    });
+  /* ============================================================
+     7) Account — profile, privacy, feedback
+     ============================================================ */
+  var Account = {
+    render: function () {
+      var box = byId('profile-body'); if (!box) return;
+      if (!currentUser) {
+        box.innerHTML = '<p class="muted">Log in to see your profile, saved translations and medication.</p><button class="btn btn-primary" id="btn-profile-login">Log in / Register</button>';
+        on(byId('btn-profile-login'), 'click', function () { openAuth('login'); });
+        return;
+      }
+      var u = currentUser;
+      var since = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—';
+      box.innerHTML =
+        '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">' +
+        '<div class="logo" style="width:54px;height:54px;font-size:20px;border-radius:16px;">' + esc((u.full_name || u.email || '?').slice(0, 1).toUpperCase()) + '</div>' +
+        '<div><div style="font-family:var(--font-serif);font-size:22px;">' + esc(u.full_name || u.email) + '</div>' +
+        '<div class="muted small">' + esc(u.email) + ' · ' + esc(u.role || 'patient') + '</div></div></div>' +
+        '<div class="chips" style="margin-top:16px;">' +
+        '<span class="chip static">🌐 ' + esc(u.language || 'en') + '</span>' +
+        (u.country ? '<span class="chip static">📍 ' + esc(u.country) + '</span>' : '') +
+        '<span class="chip static">Member since ' + esc(since) + '</span></div>' +
+        '<div class="row mt"><button class="btn btn-ghost btn-sm" id="btn-acc-logout">Sign out</button></div>';
+      on(byId('btn-acc-logout'), 'click', doLogout);
+    }
+  };
+
+  on(byId('btn-export'), 'click', function () {
+    if (!token) { openAuth('login'); return; }
+    var box = byId('export-box');
+    api('/api/privacy/export', { auth: true }).then(function (d) {
+      if (box) { box.classList.remove('hidden'); box.textContent = JSON.stringify(d, null, 2); }
+      toast('Exported below', 'ok');
+    }).catch(function (e) { toast(e.message, 'err'); });
+  });
+  on(byId('btn-wipe'), 'click', function () {
+    if (!token) { openAuth('login'); return; }
+    if (!confirm('Delete ALL your translations, medications, triage and feedback? Your login is kept. This cannot be undone.')) return;
+    api('/api/privacy/wipe', { method: 'POST', auth: true }).then(function () {
+      toast('All personal records deleted', 'ok');
+      var box = byId('export-box'); if (box) { box.classList.add('hidden'); box.textContent = ''; }
+      loadMyTranslations(); Med.reload();
+    }).catch(function (e) { toast(e.message, 'err'); });
+  });
+  on(byId('btn-send-feedback'), 'click', function () {
+    var content = (byId('fb-content') || {}).value || '';
+    if (content.trim().length < 2) { toast('Please write a message', 'warn'); return; }
+    var body = { category: (byId('fb-category') || {}).value || 'other', rating: parseInt((byId('fb-rating') || {}).value, 10) || 5, comment: content.trim() };
+    api('/api/feedback', { method: 'POST', body: body, auth: !!token }).then(function () {
+      var st = byId('fb-status'); if (st) st.textContent = 'Thank you! Your feedback was received.';
+      if (byId('fb-content')) byId('fb-content').value = ''; toast('Feedback sent', 'ok');
+    }).catch(function (e) { toast(e.message, 'err'); });
+  });
+
+  /* ============================================================
+     8) Auth modal
+     ============================================================ */
+  function openAuth(tab) {
+    var m = byId('auth-modal'); if (!m) return; m.classList.remove('hidden');
+    switchTab(tab || 'login');
+  }
+  function closeAuth() { var m = byId('auth-modal'); if (m) m.classList.add('hidden'); var am = byId('auth-message'); if (am) am.textContent = ''; }
+  function switchTab(tab) {
+    qsa('.modal-tabs .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === tab); });
+    var lp = byId('tab-login'), rp = byId('tab-register');
+    if (lp) lp.classList.toggle('hidden', tab !== 'login');
+    if (rp) rp.classList.toggle('hidden', tab !== 'register');
+  }
+  qsa('.modal-tabs .tab').forEach(function (b) { on(b, 'click', function () { switchTab(b.dataset.tab); }); });
+  on(byId('auth-modal'), 'click', function (e) { if (e.target === this) closeAuth(); });
+  on(byId('btn-login'), 'click', function () { openAuth('login'); });
+  on(byId('btn-logout'), 'click', doLogout);
+
+  function doLogout() { clearSession(); toast('Signed out', 'ok'); setActive('home'); }
+
+  on(byId('btn-do-login'), 'click', function () {
+    var email = (byId('login-email') || {}).value || '', pw = (byId('login-password') || {}).value || '';
+    var msg = byId('auth-message'); if (msg) msg.textContent = 'Signing in…';
+    api('/api/auth/login', { method: 'POST', body: { email: email.trim(), password: pw } }).then(function (d) {
+      setSession(d.access_token, d.user); closeAuth(); toast('Welcome back, ' + ((d.user && d.user.full_name) || 'friend'), 'ok'); afterAuth();
+    }).catch(function (e) { if (msg) msg.textContent = e.message || 'Login failed'; });
+  });
+  on(byId('btn-do-register'), 'click', function () {
+    var body = {
+      full_name: (byId('reg-name') || {}).value || '', email: ((byId('reg-email') || {}).value || '').trim(),
+      password: (byId('reg-password') || {}).value || '', language: (byId('reg-language') || {}).value || 'en',
+      country: (byId('reg-country') || {}).value || ''
+    };
+    var msg = byId('auth-message'); if (msg) msg.textContent = 'Creating account…';
+    if (!body.full_name) { if (msg) msg.textContent = 'Please enter your name'; return; }
+    api('/api/auth/register', { method: 'POST', body: body }).then(function (d) {
+      setSession(d.access_token, d.user); closeAuth(); toast('Account created — welcome!', 'ok'); afterAuth();
+    }).catch(function (e) { if (msg) msg.textContent = e.message || 'Registration failed'; });
+  });
+
+  function afterAuth() { loadMyTranslations(); Med.reload(); Account.render(); }
+
+  function refreshAuthUI() {
+    var loginBtn = byId('btn-login'), chip = byId('user-chip'), email = byId('user-email');
+    if (currentUser) {
+      if (loginBtn) loginBtn.classList.add('hidden');
+      if (chip) chip.classList.remove('hidden');
+      if (email) email.textContent = currentUser.full_name || currentUser.email;
+    } else {
+      if (loginBtn) loginBtn.classList.remove('hidden');
+      if (chip) chip.classList.add('hidden');
+    }
   }
 
-  // ---- 医院列表页点击"导航到这里"跳转到导航页并设置目标 ----
-  function navToTarget(lng, lat, name) {
-    if (!lng || !lat) return;
-    _navTarget = { lng: lng, lat: lat, name: name || '医院' };
-    // 确保地图已经初始化（触发视图切换会调 initNavigation）
-    if (byId('nav-hospital') && byId('nav-map') && window.AMap && _navMap) {
-      drawMap();
-    }
-  }
-  // 暴露 drawMap 引用
-  var drawMap = function() {};
-
-  // ================================================================
-  // 6) 初始
-  // ================================================================
+  /* ============================================================
+     9) Boot
+     ============================================================ */
+  refreshAuthUI();
   setActive('home');
-  console.log('TransMed UI initialized · API:', API);
+  loadStats();
+  revealScan();
+  console.log('TransMed UI ready · API:', API || '(same origin)');
 })();
 '''
 
-import os
-_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'transmed_web')
-os.makedirs(_dir, exist_ok=True)
-_path = os.path.join(_dir, 'app.js')
-with open(_path, 'w', encoding='utf-8') as f:
-    f.write(JS)
-print('Written to', _path, '(' + str(len(JS)) + ' chars)')
+# ---------------------------------------------------------------------------
+# 写出到两份前端目录：transmed_web/（后端服务）与 docs/（GitHub Pages）
+# ---------------------------------------------------------------------------
+_root = os.path.dirname(os.path.abspath(__file__))
+_targets = [
+    os.path.join(_root, 'transmed_web', 'app.js'),
+    os.path.join(_root, 'docs', 'app.js'),
+]
+for _path in _targets:
+    os.makedirs(os.path.dirname(_path), exist_ok=True)
+    with open(_path, 'w', encoding='utf-8') as f:
+        f.write(JS)
+    print('wrote', os.path.relpath(_path, _root), '(%d bytes)' % len(JS.encode('utf-8')))

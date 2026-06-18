@@ -55,6 +55,12 @@ class Settings:
     # 如果把 JS API 的 key 当作 Web 服务 key，会收到：USERKEY_PLAT_NOMATCH (infocode=10009)
     AMAP_WEB_KEY: str = os.environ.get("TRANSMED_AMAP_KEY", "bdbaa3cb0db2e16f98321b7c9a10a52e")
     AMAP_JS_KEY: str = os.environ.get("TRANSMED_AMAP_JS_KEY", "81d33fbdcf7d450c41c8bbb817fd959e")
+    # 安全密钥（securityJsCode）：高德 JS API 2.0 自 2021-12-02 起，新建的 JS Key
+    # 必须配套一个「安全密钥」才能调用 路线规划 / 定位 服务（Walking/Driving/Transfer）。
+    # 不配它，前端地图只能显示起点/终点两个标记，画不出路线（这正是导航"只看到两个点"的根因）。
+    # 申请：高德控制台 → 应用管理 → 你的「Web端(JS API)」Key → 生成配套「安全密钥」。
+    # 通过环境变量 TRANSMED_AMAP_SECURITY_JS_CODE 设置；为空时前端自动回退到「外部地图App + 文字路线」。
+    AMAP_SECURITY_JS_CODE: str = os.environ.get("TRANSMED_AMAP_SECURITY_JS_CODE", "")
 
 
 settings = Settings()
