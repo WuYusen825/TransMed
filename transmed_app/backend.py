@@ -896,37 +896,74 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 @app.get("/api/navigation")
-def navigate(hospital_id: str = "ufh",
+def navigate(hospital_id: Optional[str] = None,
+             to_lng: Optional[float] = None,
+             to_lat: Optional[float] = None,
+             name: Optional[str] = None,
              from_lng: Optional[float] = None,
              from_lat: Optional[float] = None,
              mode: str = "walking"):
     """室外导航：返回目标医院的位置信息、路线摘要和外部地图链接。
 
-    - hospital_id: 目标医院 id（从 /api/hospitals 返回的 id）
-    - from_lng, from_lat: 可选出发点坐标 (WGS84/GCJ02)
-    - mode: walking / driving / transit
+    使用方式（二选一）：
+    - hospital_id: 从 /api/hospitals 或本地 HOSPITALS 列表中的 id
+    - to_lng + to_lat + name: 直接传入坐标
     """
     hospital: Optional[Dict[str, Any]] = None
-    for h in HOSPITALS:
-        if h["id"] == hospital_id:
-            hospital = h
-            break
+
+    # 方式 1：直接坐标参数（最可靠，避免 ID 查找失败）
+    if to_lng is not None and to_lat is not None:
+        hospital = {
+            "id": "poi-direct",
+            "name": name or "hospital",
+            "name_zh": name or "医院",
+            "lng": to_lng,
+            "lat": to_lat,
+            "address": None,
+            "address_zh": None,
+            "phone": None,
+            "hours": None,
+            "rating": None,
+            "specialties": [],
+            "departments": [],
+        }
+    elif hospital_id:
+        # 方式 2：先查本地 HOSPITALS
+        for h in HOSPITALS:
+            if h["id"] == hospital_id:
+                hospital = h
+                break
+        if not hospital:
+            # 方式 2b：查 AMap（先尝试精确 POI ID 匹配，再尝试关键词搜索）
+            try:
+                search = _amap.search_hospitals(keyword=hospital_id or "", city="北京", limit=3)
+                if search.get("hospitals"):
+                    # 优先找 id 精确匹配的，否则用第一个结果
+                    for h in search["hospitals"]:
+                        if h.get("id") == hospital_id:
+                            hospital = h
+                            break
+                    if not hospital:
+                        hospital = search["hospitals"][0]
+            except Exception:
+                hospital = None
+
     if not hospital:
-        search = _amap.search_hospitals(keyword=hospital_id or "", city="北京", limit=1)
-        if search.get("hospitals"):
-            hospital = search["hospitals"][0]
+        # 默认 fallback：用第一个本地医院
+        if HOSPITALS:
+            hospital = HOSPITALS[0]
     if not hospital:
         raise HTTPException(404, "hospital not found. call /api/hospitals for a list")
 
-    to_lng = hospital.get("lng") or hospital.get("longitude")
-    to_lat = hospital.get("lat") or hospital.get("latitude")
-    if to_lng is None or to_lat is None:
+    _to_lng = hospital.get("lng") or hospital.get("longitude")
+    _to_lat = hospital.get("lat") or hospital.get("latitude")
+    if _to_lng is None or _to_lat is None:
         raise HTTPException(400, "hospital has no coordinates")
 
     # Default origin — Beijing Tiananmen square, used for display-only distance when not provided
     origin_lat = from_lat if from_lat is not None else 39.9042
     origin_lng = from_lng if from_lng is not None else 116.4074
-    straight_line_km = _haversine_km(origin_lat, origin_lng, to_lat, to_lng)
+    straight_line_km = _haversine_km(origin_lat, origin_lng, _to_lat, _to_lng)
 
     # Direction (attempt AMap; graceful fallback to an estimate)
     direction_result: Dict[str, Any] = {
@@ -937,7 +974,7 @@ def navigate(hospital_id: str = "ufh",
     }
     if (from_lng is not None and from_lat is not None):
         try:
-            amap_r = _amap.direction(from_lng, from_lat, to_lng, to_lat, mode=mode)
+            amap_r = _amap.direction(from_lng, from_lat, _to_lng, _to_lat, mode=mode)
             if amap_r and amap_r.get("status") and amap_r["status"].startswith("ok"):
                 direction_result = amap_r
         except Exception:
@@ -945,10 +982,10 @@ def navigate(hospital_id: str = "ufh",
 
     # External map links
     enc_name = hospital.get("name") or "hospital"
-    google_maps = f"https://www.google.com/maps/search/?api=1&query={to_lat},{to_lng}"
-    amap_link = f"https://uri.amap.com/marker?position={to_lng},{to_lat}&name={enc_name}"
-    apple_maps = f"https://maps.apple.com/?ll={to_lat},{to_lng}&q={enc_name}"
-    baidu_map = f"https://api.map.baidu.com/geocoder?location={to_lat},{to_lng}&output=html"
+    google_maps = f"https://www.google.com/maps/search/?api=1&query={_to_lat},{_to_lng}"
+    amap_link = f"https://uri.amap.com/marker?position={_to_lng},{_to_lat}&name={enc_name}"
+    apple_maps = f"https://maps.apple.com/?ll={_to_lat},{_to_lng}&q={enc_name}"
+    baidu_map = f"https://api.map.baidu.com/geocoder?location={_to_lat},{_to_lng}&output=html"
 
     # Include department highlights from hospital (department info)
     depts = []
@@ -968,8 +1005,8 @@ def navigate(hospital_id: str = "ufh",
             "phone": hospital.get("phone"),
             "hours": hospital.get("hours"),
             "rating": hospital.get("rating"),
-            "lng": to_lng,
-            "lat": to_lat,
+            "lng": _to_lng,
+            "lat": _to_lat,
         },
         "departments": depts,
         "specialties": hospital.get("specialties", []),

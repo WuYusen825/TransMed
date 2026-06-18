@@ -508,14 +508,25 @@
     const sel = document.getElementById("nav-hospital");
     if (!sel) return;
     if (!_navHospitals.length) {
-      const res = await api("/api/hospitals?limit=20");
-      _navHospitals = (res && res.hospitals) ? res.hospitals : [];
+      // 优先用 /api/hospitals 查真实医院，失败时用内置的默认列表
+      try {
+        const res = await api("/api/hospitals?limit=20");
+        _navHospitals = (res && res.hospitals) ? res.hospitals : [];
+      } catch (e) {
+        // fallback: 内置小列表（使用近似坐标，确保功能可用）
+        _navHospitals = [
+          { id: "pumch", name: "Peking Union Medical College Hospital", name_zh: "北京协和医院", lng: 116.4165, lat: 39.9094 },
+          { id: "ufh", name: "United Family Hospital Beijing", name_zh: "和睦家医院", lng: 116.4677, lat: 39.9754 },
+          { id: "bjh", name: "Beijing Hospital", name_zh: "北京医院", lng: 116.4151, lat: 39.9038 },
+          { id: "tongren", name: "Beijing Tongren Hospital", name_zh: "北京同仁医院", lng: 116.4172, lat: 39.9027 },
+        ];
+      }
     }
     sel.innerHTML = "";
-    _navHospitals.forEach(h => {
+    _navHospitals.forEach((h, idx) => {
       const opt = document.createElement("option");
-      opt.value = h.id;
-      opt.textContent = h.name + (h.name_zh && h.name_zh !== h.name ? (" · " + h.name_zh) : "");
+      opt.value = String(idx);  // 用数组索引，避免 ID 问题
+      opt.textContent = h.name + ((h.name_zh && h.name_zh !== h.name) ? (" · " + h.name_zh) : "");
       sel.appendChild(opt);
     });
     if (_navHospitals.length) sel.selectedIndex = 0;
@@ -539,10 +550,21 @@
   async function refreshNavigation() {
     const sel = document.getElementById("nav-hospital");
     const mode = (document.getElementById("nav-mode") || {}).value || "walking";
-    if (!sel || !sel.value) return;
-    const hid = sel.value;
+    if (!sel || sel.value === "" || !_navHospitals.length) return;
+    const h = _navHospitals[parseInt(sel.value, 10)];
+    if (!h) return;
 
-    let url = "/api/navigation?hospital_id=" + encodeURIComponent(hid) + "&mode=" + encodeURIComponent(mode);
+    // 优先使用坐标直接调用（最可靠，避免 ID 查找失败）
+    const lng = h.lng ?? h.longitude;
+    const lat = h.lat ?? h.latitude;
+    let url;
+    if (typeof lng === "number" && typeof lat === "number") {
+      url = "/api/navigation?to_lng=" + lng + "&to_lat=" + lat +
+            "&name=" + encodeURIComponent(h.name || h.name_zh || "hospital") +
+            "&mode=" + encodeURIComponent(mode);
+    } else {
+      url = "/api/navigation?hospital_id=" + encodeURIComponent(h.id || "") + "&mode=" + encodeURIComponent(mode);
+    }
     if (_navOrigin.provided && _navOrigin.lat !== null) {
       url += "&from_lat=" + _navOrigin.lat + "&from_lng=" + _navOrigin.lng;
     }
