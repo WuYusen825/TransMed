@@ -617,6 +617,32 @@ select {
 }
 .modal-tabs .tab.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
 
+/* ============================================================ Language picker */
+.lang-card { width: 520px; }
+.lang-head { font-size: 30px; text-align: center; margin-bottom: 4px; }
+.lang-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+.lang-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 14px 8px; cursor: pointer; font-family: inherit;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r);
+  transition: transform 0.16s var(--ease), border-color 0.16s, background-color 0.16s, box-shadow 0.16s;
+}
+.lang-btn:hover { transform: translateY(-2px); border-color: var(--accent); background: var(--accent-tint); box-shadow: var(--shadow-sm); }
+.lang-btn.active { border-color: var(--accent); background: var(--accent-tint); }
+.lang-native { font-size: 15px; font-weight: 600; color: var(--ink); }
+.lang-code { font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); }
+#btn-lang { gap: 5px; }
+#btn-lang .globe { font-size: 14px; }
+
+/* RTL (Arabic) */
+html[dir="rtl"] body { direction: rtl; }
+html[dir="rtl"] .reason, html[dir="rtl"] .trust-item, html[dir="rtl"] .step-item { flex-direction: row-reverse; }
+html[dir="rtl"] .hospital-recommendation, html[dir="rtl"] .review-quote { border-left: none; border-right: 3px solid var(--accent-soft); border-radius: var(--r-sm) 0 0 var(--r-sm); }
+html[dir="rtl"] .triage-banner { border-left: none; border-right: 4px solid var(--trust); }
+html[dir="rtl"] .user-area { margin-left: 0; margin-right: auto; }
+
+@media (max-width: 560px) { .lang-card { width: calc(100% - 32px); } .lang-grid { grid-template-columns: repeat(2, 1fr); } }
+
 /* ============================================================ Toast */
 .toast-host { position: fixed; right: 22px; bottom: 22px; z-index: 1200; display: flex; flex-direction: column; gap: 10px; }
 .toast {
