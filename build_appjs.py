@@ -298,14 +298,23 @@ JS = r'''/* TransMed frontend logic */
   function loadHospitals() {
     var container = byId('hospital-list');
     if (!container) return;
-    fetch(API + '/api/hospitals?limit=20')
+    // Show fallback immediately, then try API (8s timeout)
+    renderHospitals(FALLBACK_HOSPITALS);
+    if (!API) return; // Skip API on GitHub Pages/static hosts
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timeoutId = null;
+    if (controller) {
+      timeoutId = setTimeout(function() { controller.abort(); }, 8000);
+    }
+    var opts = controller ? { signal: controller.signal } : {};
+    fetch(API + '/api/hospitals?limit=20', opts)
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        var list = (data && data.hospitals) ? data.hospitals : [];
-        renderHospitals(list);
+        if (timeoutId) clearTimeout(timeoutId);
+        var list = (data && data.hospitals && data.hospitals.length) ? data.hospitals : null;
+        if (list) renderHospitals(list);
       }).catch(function(e) {
-        // Fallback to local data
-        renderHospitals(FALLBACK_HOSPITALS);
+        if (timeoutId) clearTimeout(timeoutId);
       });
   }
 
@@ -352,23 +361,36 @@ JS = r'''/* TransMed frontend logic */
   var _navHospitals = FALLBACK_HOSPITALS;
 
   function initNavigation() {
-    // Try to load from API, fall back to local data
-    fetch(API + '/api/hospitals?limit=20')
+    // Build UI with fallback data immediately
+    _buildNavigationUI();
+    // Then try API (skip if no API base configured, e.g. on GitHub Pages)
+    if (!API) return;
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timeoutId = null;
+    if (controller) {
+      timeoutId = setTimeout(function() { controller.abort(); }, 8000);
+    }
+    var opts = controller ? { signal: controller.signal } : {};
+    fetch(API + '/api/hospitals?limit=20', opts)
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (data && data.hospitals && data.hospitals.length) _navHospitals = data.hospitals;
-        _buildNavigationUI();
+        if (timeoutId) clearTimeout(timeoutId);
+        if (data && data.hospitals && data.hospitals.length) {
+          _navHospitals = data.hospitals;
+          _buildNavigationUI();
+        }
       }).catch(function(e) {
-        _navHospitals = FALLBACK_HOSPITALS;
-        _buildNavigationUI();
+        if (timeoutId) clearTimeout(timeoutId);
       });
   }
 
+  var _navEventsBound = false;
   function _buildNavigationUI() {
     var sel = byId('nav-hospital');
     var out = byId('nav-output');
     var origin = byId('nav-origin');
     if (!sel || !out) return;
+    if (!_navHospitals || !_navHospitals.length) { out.innerHTML = '<p class="muted">Loading hospitals…</p>'; return; }
 
     // Populate hospital selector
     sel.innerHTML = '';
@@ -382,7 +404,9 @@ JS = r'''/* TransMed frontend logic */
     // Render first hospital
     _renderNavOutput(0);
 
-    // Bind events
+    // Bind events only once
+    if (_navEventsBound) return;
+    _navEventsBound = true;
     bindChange(sel, function() { _renderNavOutput(parseInt(sel.value, 10)); });
     bindChange(byId('nav-mode'), function() { _renderNavOutput(parseInt(sel.value, 10)); });
     bindClick(byId('nav-locate'), function() {
