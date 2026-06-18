@@ -66,7 +66,7 @@
     links.forEach(a => a.classList.toggle("active", a.dataset.view === view));
     if (view === "hospitals") loadHospitals();
     if (view === "medication") loadMedications();
-    if (view === "navigation") buildNavigationOptions();
+    if (view === "navigation") initNavigationPage();
     if (view === "insurance") { loadInsuranceProviders(); loadMyClaims(); }
     if (view === "translate") doTranslateReset();
     if (view === "home") loadStats();
@@ -500,436 +500,172 @@
     });
   }
 
-  /* ----------------------------- 室内导航 ----------------------------- */
-  let lastNavHospitalName = "";
-  async function buildNavigationOptions() {
-    const hospitalSel = document.getElementById("nav-hospital");
-    if (!hospitalSel.options.length) {
-      const res = await api("/api/hospitals");
-      hospitalSel.innerHTML = "";
-      if (res && res.hospitals) {
-        res.hospitals.forEach(h => hospitalSel.add(new Option(h.name, h.id)));
+  /* ----------------------------- 室外导航 ----------------------------- */
+  let _navHospitals = [];
+  let _navOrigin = { lat: null, lng: null, provided: false, label: "" };
+
+  async function initNavigationPage() {
+    const sel = document.getElementById("nav-hospital");
+    if (!sel) return;
+    if (!_navHospitals.length) {
+      const res = await api("/api/hospitals?limit=20");
+      _navHospitals = (res && res.hospitals) ? res.hospitals : [];
+    }
+    sel.innerHTML = "";
+    _navHospitals.forEach(h => {
+      const opt = document.createElement("option");
+      opt.value = h.id;
+      opt.textContent = h.name + (h.name_zh && h.name_zh !== h.name ? (" · " + h.name_zh) : "");
+      sel.appendChild(opt);
+    });
+    if (_navHospitals.length) sel.selectedIndex = 0;
+    updateOriginLabel();
+    refreshNavigation();
+  }
+
+  function updateOriginLabel() {
+    const el = document.getElementById("nav-origin");
+    if (el) {
+      if (_navOrigin.provided && _navOrigin.lat !== null) {
+        el.textContent = "📍 " + _navOrigin.label + " (" +
+          Number(_navOrigin.lat).toFixed(4) + ", " +
+          Number(_navOrigin.lng).toFixed(4) + ")";
+      } else {
+        el.textContent = "📍 Using default reference point (Beijing) — click 'Use my location' for accurate routing";
       }
     }
-    const hid = hospitalSel.value;
-    const selectedOpt = hospitalSel.options[hospitalSel.selectedIndex];
-    lastNavHospitalName = selectedOpt ? selectedOpt.textContent : (hid || "");
-    const destSel = document.getElementById("nav-dest");
-    destSel.innerHTML = "";
-    const mapRes = await api("/api/navigation/map?hospital_id=" + encodeURIComponent(hid || ""));
-    if (mapRes && mapRes.nodes) {
-      mapRes.nodes.forEach(n => destSel.add(new Option(n.label, n.id)));
+  }
+
+  async function refreshNavigation() {
+    const sel = document.getElementById("nav-hospital");
+    const mode = (document.getElementById("nav-mode") || {}).value || "walking";
+    if (!sel || !sel.value) return;
+    const hid = sel.value;
+
+    let url = "/api/navigation?hospital_id=" + encodeURIComponent(hid) + "&mode=" + encodeURIComponent(mode);
+    if (_navOrigin.provided && _navOrigin.lat !== null) {
+      url += "&from_lat=" + _navOrigin.lat + "&from_lng=" + _navOrigin.lng;
     }
-    document.getElementById("nav-info-hospital").textContent = "🏥 " + lastNavHospitalName;
-    document.getElementById("nav-info-distance").textContent = "";
-    renderMapBase(mapRes);
-  }
-  hospitalSelHandler();
-  function hospitalSelHandler() {
-    const hospitalSel = document.getElementById("nav-hospital");
-    if (!hospitalSel) return;
-    hospitalSel.addEventListener("change", () => buildNavigationOptions());
+    const data = await api(url);
+    renderNavigationResult(data);
   }
 
-  document.getElementById("btn-navigate").addEventListener("click", async () => {
-    const hospitalSel = document.getElementById("nav-hospital");
-    const dest = document.getElementById("nav-dest").value;
-    const hid = hospitalSel.value;
-    if (!hid || !dest) return;
-    const nav = await api("/api/navigation?hospital_id=" + encodeURIComponent(hid)
-      + "&from_node=entrance&to=" + encodeURIComponent(dest));
-    const mapRes = await api("/api/navigation/map?hospital_id=" + encodeURIComponent(hid));
-    renderMapBase(mapRes, nav && nav.route || null, true);
-    renderRoute(nav, dest);
-  });
-
-  function computeLayoutCoords(nodes) {
-    // Original backend coords range roughly 80..880 (x) and 200..800 (y)
-    // Scale/translate to fit within the 1000x600 viewBox while keeping room
-    // rectangles readable and leaving outer-wall padding.
-    const padLeft = 60, padRight = 60;
-    const padTop = 60, padBottom = 60;
-    const innerW = 1000 - padLeft - padRight;
-    const innerH = 600 - padTop - padBottom;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    nodes.forEach(n => {
-      if (n.x < minX) minX = n.x;
-      if (n.x > maxX) maxX = n.x;
-      if (n.y < minY) minY = n.y;
-      if (n.y > maxY) maxY = n.y;
-    });
-    const dataW = Math.max(1, maxX - minX);
-    const dataH = Math.max(1, maxY - minY);
-    const scale = Math.min(innerW / dataW, innerH / dataH);
-    const offX = padLeft + (innerW - dataW * scale) / 2 - minX * scale;
-    const offY = padTop + (innerH - dataH * scale) / 2 - minY * scale;
-    return { scale, offX, offY, padLeft, padTop, padRight, padBottom };
-  }
-
-  function splitLabel(label) {
-    // Labels from backend look like "Name / 名称"
-    if (!label) return { en: "", zh: "" };
-    const idx = label.indexOf("/");
-    if (idx === -1) return { en: label.trim(), zh: "" };
-    return { en: label.slice(0, idx).trim(), zh: label.slice(idx + 1).trim() };
-  }
-
-  function renderMapBase(mapRes, route, animate) {
-    const svg = document.getElementById("nav-svg");
-    svg.innerHTML = "";
-    const ns = "http://www.w3.org/2000/svg";
-    svg.setAttribute("viewBox", "0 0 1000 600");
-
-    // ---- Outer building border (with subtle drop shadow) ----
-    const outer = document.createElementNS(ns, "rect");
-    outer.setAttribute("x", 20);
-    outer.setAttribute("y", 20);
-    outer.setAttribute("width", 960);
-    outer.setAttribute("height", 560);
-    outer.setAttribute("rx", 8);
-    outer.setAttribute("fill", "#0f1218");
-    outer.setAttribute("stroke", "#2a2f3a");
-    outer.setAttribute("stroke-width", 2);
-    svg.appendChild(outer);
-
-    // Ground fill (corridors will render on top)
-    const ground = document.createElementNS(ns, "rect");
-    ground.setAttribute("x", 30);
-    ground.setAttribute("y", 30);
-    ground.setAttribute("width", 940);
-    ground.setAttribute("height", 540);
-    ground.setAttribute("rx", 6);
-    ground.setAttribute("fill", "#15181f");
-    svg.appendChild(ground);
-
-    if (!mapRes || !mapRes.nodes || mapRes.nodes.length === 0) {
-      const empty = document.createElementNS(ns, "text");
-      empty.setAttribute("x", 500);
-      empty.setAttribute("y", 300);
-      empty.setAttribute("text-anchor", "middle");
-      empty.setAttribute("fill", "#94a3b8");
-      empty.setAttribute("font-size", "14");
-      empty.textContent = "No floor plan data available for this hospital.";
-      svg.appendChild(empty);
+  function renderNavigationResult(data) {
+    const out = document.getElementById("nav-output");
+    if (!out) return;
+    if (!data || !data.hospital) {
+      out.innerHTML = `<p class="muted">Hospital not found. Try another selection.</p>`;
       return;
     }
+    const h = data.hospital;
+    const dir = data.direction || {};
+    const maps = data.maps || {};
+    const distKm = (typeof data.straight_line_km === "number") ? data.straight_line_km.toFixed(1) : "--";
+    const routeDistM = (typeof dir.distance_m === "number") ? dir.distance_m : null;
+    const routeMin = (typeof dir.duration_min === "number") ? dir.duration_min : null;
+    const statusStr = (dir.status === "estimated") ? "Estimated" : ((dir.status && dir.status.replace(/_/g, " ")) || "--");
 
-    const layout = computeLayoutCoords(mapRes.nodes);
-    const nodeById = {};
-    mapRes.nodes.forEach(n => {
-      nodeById[n.id] = {
-        ...n,
-        _x: n.x * layout.scale + layout.offX,
-        _y: n.y * layout.scale + layout.offY,
-      };
-    });
+    const nameZh = h.name_zh && h.name_zh !== h.name ? (" · " + h.name_zh) : "";
+    const addrZh = (h.address_zh && h.address_zh !== h.address) ? ("<br><span class="muted small">" + h.address_zh + "</span>") : "";
 
-    const ROOM_W = 120;
-    const ROOM_H = 80;
-
-    // ---- Determine corridor geometry from node positions ----
-    // Group nodes by similar y to find horizontal corridor rows.
-    const yBuckets = {};
-    const yTol = 25; // tolerance for "same row" in data coords
-    mapRes.nodes.forEach(n => {
-      const key = Math.round(n.y / yTol) * yTol;
-      if (!yBuckets[key]) yBuckets[key] = [];
-      yBuckets[key].push(n);
-    });
-    const rowYs = Object.keys(yBuckets).map(Number).sort((a, b) => a - b);
-
-    // Horizontal corridors at each row (drawn as darker grey bands)
-    rowYs.forEach(rawY => {
-      const y = rawY * layout.scale + layout.offY;
-      const band = document.createElementNS(ns, "rect");
-      band.setAttribute("x", 40);
-      band.setAttribute("y", y - ROOM_H / 2 - 4);
-      band.setAttribute("width", 920);
-      band.setAttribute("height", ROOM_H + 8);
-      band.setAttribute("fill", "#1a1f29");
-      band.setAttribute("rx", 3);
-      svg.appendChild(band);
-    });
-
-    // Vertical corridor connecting the rows (through the central hall area)
-    // Pick a center-x based on where nodes cluster horizontally.
-    let centerX = 500;
-    if (mapRes.nodes.length) {
-      const mid = mapRes.nodes.reduce((s, n) => s + n.x, 0) / mapRes.nodes.length;
-      centerX = mid * layout.scale + layout.offX;
-    }
-    const vCorridor = document.createElementNS(ns, "rect");
-    vCorridor.setAttribute("x", centerX - ROOM_W / 2 - 4);
-    vCorridor.setAttribute("y", 35);
-    vCorridor.setAttribute("width", ROOM_W + 8);
-    vCorridor.setAttribute("height", 530);
-    vCorridor.setAttribute("fill", "#1a1f29");
-    svg.appendChild(vCorridor);
-
-    // ---- Grey path lines between rooms (walking graph) ----
-    if (mapRes.paths && mapRes.paths.length) {
-      mapRes.paths.forEach(p => {
-        const from = nodeById[p.from], to = nodeById[p.to];
-        if (!from || !to) return;
-        const line = document.createElementNS(ns, "line");
-        line.setAttribute("x1", from._x);
-        line.setAttribute("y1", from._y);
-        line.setAttribute("x2", to._x);
-        line.setAttribute("y2", to._y);
-        line.setAttribute("stroke", "#2a2f3a");
-        line.setAttribute("stroke-width", 2);
-        line.setAttribute("stroke-dasharray", "4 3");
-        line.setAttribute("opacity", "0.75");
-        svg.appendChild(line);
-      });
+    let deptHtml = "";
+    if (Array.isArray(data.departments) && data.departments.length) {
+      const chips = data.departments.slice(0, 12).map(d => {
+        const en = (d.name || "").trim();
+        const zh = (d.name_zh || "").trim();
+        const text = zh ? (en + (en && en !== zh ? " / " + zh : "")) : (en || zh);
+        return text ? `<span class="chip">${text}</span>` : "";
+      }).filter(Boolean).join("");
+      if (chips) deptHtml = `<div class="chips"><span class="muted small">Key departments:</span> ${chips}</div>`;
+    } else if (Array.isArray(data.specialties) && data.specialties.length) {
+      const chips = data.specialties.map(s => `<span class="chip">${String(s)}</span>`).join("");
+      deptHtml = `<div class="chips"><span class="muted small">Specialties:</span> ${chips}</div>`;
     }
 
-    // ---- Rooms ----
-    mapRes.nodes.forEach((n, idx) => {
-      const g = document.createElementNS(ns, "g");
-      const x = nodeById[n.id]._x;
-      const y = nodeById[n.id]._y;
-
-      const rect = document.createElementNS(ns, "rect");
-      rect.setAttribute("x", x - ROOM_W / 2);
-      rect.setAttribute("y", y - ROOM_H / 2);
-      rect.setAttribute("width", ROOM_W);
-      rect.setAttribute("height", ROOM_H);
-      rect.setAttribute("rx", 4);
-      rect.setAttribute("fill", "#15181f");
-      rect.setAttribute("stroke", "#2a2f3a");
-      rect.setAttribute("stroke-width", 1.5);
-      g.appendChild(rect);
-
-      // Room code in top-left corner (e.g. R101, R205)
-      const roomCode = document.createElementNS(ns, "text");
-      roomCode.setAttribute("x", x - ROOM_W / 2 + 8);
-      roomCode.setAttribute("y", y - ROOM_H / 2 + 16);
-      roomCode.setAttribute("fill", "#64748b");
-      roomCode.setAttribute("font-size", "10");
-      roomCode.setAttribute("font-family", "ui-monospace, SFMono-Regular, Menlo, monospace");
-      roomCode.textContent = "R" + (n.floor || 1) * 100 + (idx + 1);
-      g.appendChild(roomCode);
-
-      // Floor badge in top-right
-      const floorBadge = document.createElementNS(ns, "text");
-      floorBadge.setAttribute("x", x + ROOM_W / 2 - 8);
-      floorBadge.setAttribute("y", y - ROOM_H / 2 + 16);
-      floorBadge.setAttribute("text-anchor", "end");
-      floorBadge.setAttribute("fill", "#64748b");
-      floorBadge.setAttribute("font-size", "10");
-      floorBadge.textContent = "F" + (n.floor || 1);
-      g.appendChild(floorBadge);
-
-      // Two-line label inside room (English + Chinese)
-      const { en, zh } = splitLabel(n.label);
-      const enText = document.createElementNS(ns, "text");
-      enText.setAttribute("x", x);
-      enText.setAttribute("y", y - 2);
-      enText.setAttribute("text-anchor", "middle");
-      enText.setAttribute("fill", "#e2e8f0");
-      enText.setAttribute("font-size", "12");
-      enText.setAttribute("font-weight", "600");
-      enText.textContent = truncateCenter(en, 18);
-      g.appendChild(enText);
-
-      if (zh) {
-        const zhText = document.createElementNS(ns, "text");
-        zhText.setAttribute("x", x);
-        zhText.setAttribute("y", y + 16);
-        zhText.setAttribute("text-anchor", "middle");
-        zhText.setAttribute("fill", "#94a3b8");
-        zhText.setAttribute("font-size", "11");
-        zhText.textContent = truncateCenter(zh, 10);
-        g.appendChild(zhText);
-      }
-
-      // Center anchor dot (will be overlaid by bigger circles for start/end/route)
-      const dot = document.createElementNS(ns, "circle");
-      dot.setAttribute("cx", x);
-      dot.setAttribute("cy", y + ROOM_H / 2 - 10);
-      dot.setAttribute("r", 2.5);
-      dot.setAttribute("fill", "#475569");
-      g.appendChild(dot);
-
-      svg.appendChild(g);
-    });
-
-    // ---- Highlighted route path (orange) ----
-    const routeIds = new Set();
-    const routeNodes = [];
-    if (route && route.length) {
-      route.forEach(s => {
-        routeIds.add(s.node_id);
-        if (nodeById[s.node_id]) routeNodes.push(nodeById[s.node_id]);
-      });
-      for (let i = 0; i < route.length - 1; i++) {
-        const from = nodeById[route[i].node_id];
-        const to = nodeById[route[i + 1].node_id];
-        if (!from || !to) continue;
-        const line = document.createElementNS(ns, "line");
-        line.setAttribute("x1", from._x);
-        line.setAttribute("y1", from._y);
-        line.setAttribute("x2", to._x);
-        line.setAttribute("y2", to._y);
-        line.setAttribute("stroke", "#f97316");
-        line.setAttribute("stroke-width", 4);
-        line.setAttribute("stroke-linecap", "round");
-        line.setAttribute("stroke-linejoin", "round");
-        if (animate) {
-          line.setAttribute("opacity", "0");
-          setTimeout(() => {
-            line.style.transition = "opacity 0.6s ease";
-            line.setAttribute("opacity", "1");
-          }, 120 * i);
-        }
-        svg.appendChild(line);
-      }
-    }
-
-    // ---- Markers: START / DESTINATION / route-node dots ----
-    mapRes.nodes.forEach((n, i) => {
-      const x = nodeById[n.id]._x;
-      const y = nodeById[n.id]._y;
-      const inRoute = routeIds.has(n.id);
-      const isStart = n.id === "entrance";
-      const isDest = route && route.length && route[route.length - 1].node_id === n.id;
-
-      let fill = "transparent";
-      let stroke = "#2a2f3a";
-      let r = 5;
-      let labelText = "";
-      let labelColor = "#94a3b8";
-
-      if (inRoute) {
-        fill = "#f97316";
-        stroke = "#f97316";
-        r = 6;
-      }
-      if (isStart) {
-        fill = "#22c55e";
-        stroke = "#22c55e";
-        r = 7;
-        labelText = "START";
-        labelColor = "#22c55e";
-      }
-      if (isDest) {
-        fill = "#f97316";
-        stroke = "#f97316";
-        r = 8;
-        labelText = "DESTINATION";
-        labelColor = "#f97316";
-      }
-
-      const c = document.createElementNS(ns, "circle");
-      c.setAttribute("cx", x);
-      c.setAttribute("cy", y - ROOM_H / 2 - 12);
-      c.setAttribute("r", r);
-      c.setAttribute("fill", fill);
-      c.setAttribute("stroke", stroke);
-      c.setAttribute("stroke-width", 2);
-      if (animate && inRoute) {
-        c.setAttribute("opacity", "0");
-        setTimeout(() => {
-          c.style.transition = "opacity 0.5s ease";
-          c.setAttribute("opacity", "1");
-        }, 100 * i);
-      }
-      svg.appendChild(c);
-
-      if (labelText) {
-        const t = document.createElementNS(ns, "text");
-        t.setAttribute("x", x);
-        t.setAttribute("y", y - ROOM_H / 2 - 22);
-        t.setAttribute("text-anchor", "middle");
-        t.setAttribute("fill", labelColor);
-        t.setAttribute("font-size", "11");
-        t.setAttribute("font-weight", "700");
-        t.setAttribute("letter-spacing", "1");
-        t.textContent = labelText;
-        svg.appendChild(t);
-      }
-    });
-
-    // ---- Compass / floor label in a corner ----
-    const corner = document.createElementNS(ns, "g");
-    const cornerBox = document.createElementNS(ns, "rect");
-    cornerBox.setAttribute("x", 30);
-    cornerBox.setAttribute("y", 30);
-    cornerBox.setAttribute("width", 120);
-    cornerBox.setAttribute("height", 28);
-    cornerBox.setAttribute("rx", 4);
-    cornerBox.setAttribute("fill", "#0f1218");
-    cornerBox.setAttribute("stroke", "#2a2f3a");
-    corner.appendChild(cornerBox);
-    const cornerText = document.createElementNS(ns, "text");
-    cornerText.setAttribute("x", 90);
-    cornerText.setAttribute("y", 49);
-    cornerText.setAttribute("text-anchor", "middle");
-    cornerText.setAttribute("fill", "#94a3b8");
-    cornerText.setAttribute("font-size", "11");
-    cornerText.textContent = "HOSPITAL FLOOR PLAN";
-    corner.appendChild(cornerText);
-    svg.appendChild(corner);
-  }
-
-  function truncateCenter(s, n) {
-    if (!s) return "";
-    if (s.length <= n) return s;
-    if (n <= 3) return s.slice(0, n);
-    const half = Math.floor((n - 1) / 2);
-    return s.slice(0, half) + "…" + s.slice(s.length - half);
-  }
-
-  function renderRoute(nav, dest) {
-    const routeEl = document.getElementById("nav-route");
-    const distEl = document.getElementById("nav-info-distance");
-    if (!nav || !nav.route || nav.route.length === 0) {
-      routeEl.innerHTML = `<p class="muted">No route available. Try a different destination.</p>`;
-      if (distEl) distEl.textContent = "";
-      return;
-    }
-    const total = nav.total_distance;
-    const distStr = (typeof total === "number") ? total.toFixed(0) : (total || "—");
-    if (distEl) {
-      distEl.textContent = "🚶 Total distance: " + distStr + " units · " + nav.route.length + " steps";
-    }
-
-    const first = nav.route[0];
-    const last = nav.route[nav.route.length - 1];
-    const firstNode = typeof first === "object" ? (first.label || first.node_id || "") : "";
-    const lastNode = typeof last === "object" ? (last.label || last.node_id || dest) : dest;
-
-    const steps = nav.route.map((s, i) => {
-      const label = (typeof s === "object" && s.label) ? s.label : (s.node_id || "");
-      const parts = splitLabel(label);
-      const en = parts.en || label || "Step " + (i + 1);
-      const zh = parts.zh ? `<span class="muted small"> · ${parts.zh}</span>` : "";
-      const instruction = (typeof s === "object" && s.instruction) ? s.instruction : "";
-      const floor = (typeof s === "object" && s.floor) ? `Floor ${s.floor}` : "";
-      return `
-        <div class="nav-step ${i === 0 ? "nav-step-current" : ""}">
+    let stepsHtml = "";
+    if (Array.isArray(dir.steps) && dir.steps.length) {
+      const steps = dir.steps.map((s, i) => {
+        const instruction = (typeof s === "string") ? s : (s.instruction || s.text || JSON.stringify(s));
+        return `<div class="nav-step ${i === 0 ? "nav-step-current" : ""}">
           <span class="nav-step-pill">${i + 1}</span>
           <div class="nav-step-body">
-            <div class="nav-step-title">${en}${zh}</div>
-            ${floor ? `<div class="nav-step-meta muted small">${floor}</div>` : ""}
-            ${instruction ? `<div class="nav-step-instr muted small">${instruction}</div>` : ""}
+            <div class="nav-step-title">${instruction}</div>
+            ${(s.distance || s.duration) ? `<div class="nav-step-meta muted small">${s.distance || ""}${s.duration ? (" · " + s.duration) : ""}</div>` : ""}
           </div>
-        </div>
-      `;
-    }).join("");
+        </div>`;
+      }).join("");
+      stepsHtml = `<div style="margin-top:14px;"><h4 style="margin-bottom:10px;">🚶 Directions</h4>${steps}</div>`;
+    }
 
-    routeEl.innerHTML = `
-      <div class="card" style="padding:12px 14px;margin-bottom:12px;border-color:var(--border-strong);">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h4 style="margin:0;">📍 Route to ${splitLabel(lastNode).en || lastNode}</h4>
-          <span class="chip" style="color:var(--accent-soft);">${distStr} units</span>
+    out.innerHTML = `
+      <div class="card">
+        <h3 style="margin-top:0;">🏥 ${h.name || ""}${nameZh}</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 18px;margin-top:10px;">
+          ${h.address ? `<div><span class="muted small">Address</span><div>${h.address}${addrZh}</div></div>` : ""}
+          ${h.phone ? `<div><span class="muted small">Phone</span><div>${h.phone}</div></div>` : ""}
         </div>
-        <p class="muted small" style="margin-top:6px;margin-bottom:0;">From: ${splitLabel(firstNode).en || firstNode}</p>
+        ${h.hours ? `<div class="muted small" style="margin-top:8px;">Hours: ${h.hours}</div>` : ""}
+        ${(h.rating !== null && h.rating !== undefined) ? `<div class="muted small">Rating: ${Number(h.rating).toFixed(1)} ★</div>` : ""}
       </div>
-      ${steps}
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+        <a class="btn btn-primary" href="${maps.google || "#"}" target="_blank" rel="noopener noreferrer">🌍 Google Maps</a>
+        <a class="btn btn-primary" href="${maps.amap || "#"}" target="_blank" rel="noopener noreferrer">🗺️ 高德 AMap</a>
+        <a class="btn btn-primary" href="${maps.apple || "#"}" target="_blank" rel="noopener noreferrer">🍎 Apple Maps</a>
+        <a class="btn btn-primary" href="${maps.baidu || "#"}" target="_blank" rel="noopener noreferrer">🗺️ 百度地图</a>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:16px;">
+        <div class="nav-stat"><div class="muted small">Straight line</div><div class="nav-stat-value">${distKm} km</div></div>
+        ${routeDistM !== null ? `<div class="nav-stat"><div class="muted small">Route distance</div><div class="nav-stat-value">${(routeDistM / 1000).toFixed(1)} km</div></div>` : ""}
+        ${routeMin !== null ? `<div class="nav-stat"><div class="muted small">Travel time</div><div class="nav-stat-value">${routeMin} min</div></div>` : ""}
+      </div>
+      <div class="muted small" style="margin-top:6px;">Mode: ${data.mode || "walking"} · ${statusStr}</div>
+
+      ${h.lat && h.lng ? `<div class="muted small" style="margin-top:12px;">Coordinates: ${Number(h.lat).toFixed(5)}, ${Number(h.lng).toFixed(5)}</div>` : ""}
+
+      ${deptHtml}
+
+      ${stepsHtml}
     `;
   }
+
+  async function useMyLocation() {
+    const btn = document.getElementById("nav-locate");
+    if (!btn) return;
+    btn.textContent = "Locating…";
+    btn.disabled = true;
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) reject(new Error("geolocation not available"));
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+      });
+      _navOrigin = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        provided: true,
+        label: "Your location",
+      };
+    } catch (e) {
+      _navOrigin = { lat: null, lng: null, provided: false, label: "" };
+      alert("Unable to get your location: " + (e.message || e));
+    } finally {
+      btn.textContent = "Use my location";
+      btn.disabled = false;
+    }
+    updateOriginLabel();
+    refreshNavigation();
+  }
+
+  function wireNavigationPage() {
+    const sel = document.getElementById("nav-hospital");
+    const mode = document.getElementById("nav-mode");
+    const locate = document.getElementById("nav-locate");
+    if (sel) sel.addEventListener("change", refreshNavigation);
+    if (mode) mode.addEventListener("change", refreshNavigation);
+    if (locate) locate.addEventListener("click", useMyLocation);
+  }
+  wireNavigationPage();
 
   /* ----------------------------- 用药 ----------------------------- */
   (async () => {

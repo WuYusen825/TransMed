@@ -883,28 +883,36 @@ def hospital_detail(hospital_id: str):
     return _hospital_to_out(h)
 
 
-# -------------------------------------------------------------- navigation（高德地图版）
+# -------------------------------------------------------------- navigation（室外导航）
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    import math
+    r = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
 @app.get("/api/navigation")
 def navigate(hospital_id: str = "ufh",
              from_lng: Optional[float] = None,
              from_lat: Optional[float] = None,
              mode: str = "walking"):
-    """返回指定医院的坐标及路径规划摘要。前端用高德 JS API 画地图和路线。
+    """室外导航：返回目标医院的位置信息、路线摘要和外部地图链接。
 
     - hospital_id: 目标医院 id（从 /api/hospitals 返回的 id）
-    - from_lng, from_lat: 可选出发点坐标（如用户位置）；不填则用医院自身坐标
-    - mode: walking / driving
+    - from_lng, from_lat: 可选出发点坐标 (WGS84/GCJ02)
+    - mode: walking / driving / transit
     """
-    # 找到医院
     hospital: Optional[Dict[str, Any]] = None
-    # 先找本地数据
     for h in HOSPITALS:
         if h["id"] == hospital_id:
             hospital = h
             break
-    # 否则用高德 POI 搜索
     if not hospital:
-        search = _amap.search_hospitals(keyword=hospital_id, city="北京", limit=1)
+        search = _amap.search_hospitals(keyword=hospital_id or "", city="北京", limit=1)
         if search.get("hospitals"):
             hospital = search["hospitals"][0]
     if not hospital:
@@ -915,10 +923,40 @@ def navigate(hospital_id: str = "ufh",
     if to_lng is None or to_lat is None:
         raise HTTPException(400, "hospital has no coordinates")
 
-    # 如果有出发点，做路径规划
-    direction_result: Dict[str, Any] = {"status": "no_origin", "distance_m": 0, "duration_min": 0, "steps": []}
-    if from_lng is not None and from_lat is not None:
-        direction_result = _amap.direction(from_lng, from_lat, to_lng, to_lat, mode=mode)
+    # Default origin — Beijing Tiananmen square, used for display-only distance when not provided
+    origin_lat = from_lat if from_lat is not None else 39.9042
+    origin_lng = from_lng if from_lng is not None else 116.4074
+    straight_line_km = _haversine_km(origin_lat, origin_lng, to_lat, to_lng)
+
+    # Direction (attempt AMap; graceful fallback to an estimate)
+    direction_result: Dict[str, Any] = {
+        "status": "estimated",
+        "distance_m": round(straight_line_km * 1200),
+        "duration_min": max(3, round(straight_line_km * (20 if mode == "driving" else (12 if mode == "transit" else 8)))),
+        "steps": [],
+    }
+    if (from_lng is not None and from_lat is not None):
+        try:
+            amap_r = _amap.direction(from_lng, from_lat, to_lng, to_lat, mode=mode)
+            if amap_r and amap_r.get("status") and amap_r["status"].startswith("ok"):
+                direction_result = amap_r
+        except Exception:
+            pass
+
+    # External map links
+    enc_name = hospital.get("name") or "hospital"
+    google_maps = f"https://www.google.com/maps/search/?api=1&query={to_lat},{to_lng}"
+    amap_link = f"https://uri.amap.com/marker?position={to_lng},{to_lat}&name={enc_name}"
+    apple_maps = f"https://maps.apple.com/?ll={to_lat},{to_lng}&q={enc_name}"
+    baidu_map = f"https://api.map.baidu.com/geocoder?location={to_lat},{to_lng}&output=html"
+
+    # Include department highlights from hospital (department info)
+    depts = []
+    for d in hospital.get("departments", []) or []:
+        if isinstance(d, (tuple, list)) and len(d) >= 2:
+            depts.append({"name": str(d[0]), "name_zh": str(d[1])})
+        elif isinstance(d, dict):
+            depts.append({"name": d.get("name", ""), "name_zh": d.get("name_zh", "")})
 
     return {
         "hospital": {
@@ -928,12 +966,27 @@ def navigate(hospital_id: str = "ufh",
             "address": hospital.get("address"),
             "address_zh": hospital.get("address_zh") or hospital.get("address"),
             "phone": hospital.get("phone"),
+            "hours": hospital.get("hours"),
             "rating": hospital.get("rating"),
             "lng": to_lng,
             "lat": to_lat,
         },
+        "departments": depts,
+        "specialties": hospital.get("specialties", []),
         "mode": mode,
+        "origin": {
+            "lng": origin_lng,
+            "lat": origin_lat,
+            "provided": (from_lng is not None and from_lat is not None),
+        },
+        "straight_line_km": round(straight_line_km, 2),
         "direction": direction_result,
+        "maps": {
+            "google": google_maps,
+            "amap": amap_link,
+            "apple": apple_maps,
+            "baidu": baidu_map,
+        },
     }
 
 

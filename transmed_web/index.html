@@ -188,22 +188,24 @@
 
   <!-- 院内导航 -->
   <section class="view" data-view="navigation">
-    <h2>Indoor Hospital Navigation</h2>
-    <p class="muted">Step-by-step indoor navigation from entrance to destination.</p>
+    <h2>Hospital Navigation / 医院导航</h2>
+    <p class="muted">Select a hospital — then open in Google Maps / 高德 / Apple / 百度 for directions.</p>
     <div class="row">
       <label>Hospital:</label>
       <select id="nav-hospital"></select>
-      <label>Destination:</label>
-      <select id="nav-dest"></select>
-      <button class="btn btn-primary" id="btn-navigate">Show route</button>
+      <label>Mode:</label>
+      <select id="nav-mode">
+        <option value="walking">Walking</option>
+        <option value="driving">Driving</option>
+        <option value="transit">Transit</option>
+      </select>
+      <button class="btn btn-light" id="nav-locate">Use my location</button>
     </div>
-    <div id="nav-info" class="card nav-info">
-      <span id="nav-info-hospital" class="muted small">—</span>
-      <span id="nav-info-distance" class="muted small">—</span>
+    <div class="card nav-info">
+      <span id="nav-origin" class="muted small">📍 Using default reference point (Beijing) — click 'Use my location' for accurate routing</span>
     </div>
-    <div class="nav-stage">
-      <svg id="nav-svg" viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg"></svg>
-      <div id="nav-route" class="nav-route"><p class="muted">Choose a destination, then click "Show route" to display the guided path.</p></div>
+    <div id="nav-output">
+      <p class="muted">Loading hospitals…</p>
     </div>
   </section>
 

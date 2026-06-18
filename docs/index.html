@@ -139,29 +139,11 @@
   <!-- 分诊 & 医院 -->
   <section class="view" data-view="hospitals">
     <h2>Smart Triage & Hospital Finder</h2>
-    <p class="muted">Hospital data is sourced from <b>AMap (高德地图) POI search</b> — real ratings, addresses, phone numbers and coordinates. If no AMap key is configured on the backend, we fall back to a local demo list (clearly labeled).</p>
 
     <div class="triage-card">
       <div class="row">
         <label>Describe your symptoms:</label>
         <input id="triage-input" type="text" placeholder="e.g. persistent headache and high fever for 2 days" />
-      </div>
-      <div class="row">
-        <label>Hospital keyword:</label>
-        <input id="hospital-keyword" type="text" placeholder="e.g. International, Dental, Cardiology" />
-        <label>City:</label>
-        <select id="hospital-city">
-          <option value="北京">北京 (Beijing)</option>
-          <option value="上海">上海 (Shanghai)</option>
-          <option value="广州">广州 (Guangzhou)</option>
-          <option value="深圳">深圳 (Shenzhen)</option>
-          <option value="杭州">杭州 (Hangzhou)</option>
-          <option value="成都">成都 (Chengdu)</option>
-          <option value="南京">南京 (Nanjing)</option>
-          <option value="武汉">武汉 (Wuhan)</option>
-          <option value="西安">西安 (Xi'an)</option>
-          <option value="天津">天津 (Tianjin)</option>
-        </select>
       </div>
       <div class="row">
         <label>Insurance filter:</label>
@@ -190,10 +172,7 @@
           <option>General Medicine</option>
         </select>
       </div>
-      <div class="row">
-        <button class="btn btn-primary" id="btn-triage">Analyze & Recommend</button>
-        <button class="btn" id="btn-hospital-search">Search hospitals</button>
-      </div>
+      <button class="btn btn-primary" id="btn-triage">Analyze & Recommend</button>
       <div class="row sort-row">
         <label>Sort by:</label>
         <label class="sort-option"><input type="radio" name="sort" id="sort-rating" checked /> Rating</label>
@@ -202,40 +181,32 @@
       </div>
     </div>
 
-    <div id="hospital-note" class="hospital-note muted small">—</div>
-
     <div id="triage-result" class="triage-result hidden"></div>
 
     <div id="hospital-list" class="hospital-list"></div>
   </section>
 
-  <!-- 地图导航（高德） -->
+  <!-- 院内导航 -->
   <section class="view" data-view="navigation">
-    <h2>Navigation to Hospital</h2>
-    <p class="muted">Powered by <b>AMap (高德地图) JS API</b>. Real walking / driving routes from your location to the hospital you selected on the Hospitals page.</p>
-
-    <div class="card nav-setup-card">
-      <div class="row">
-        <label style="width:120px;"><b>🏥 Destination:</b></label>
-        <div id="nav-destination-text" style="flex:1;padding:10px 14px;background:rgba(30,64,175,0.12);border-radius:var(--radius);border:1px solid rgba(30,64,175,0.3);">
-          <span class="muted small">Pick a hospital from the Hospitals page and click "Navigate there" →</span>
-        </div>
-      </div>
-      <div class="row">
-        <label style="width:120px;"><b>📍 From:</b></label>
-        <input id="nav-from" type="text" placeholder="Enter address (e.g. Beijing Capital Airport, Sanlitun) or leave blank to use your location" style="flex:1" />
-        <button class="btn" id="btn-use-mylocation">Use my location</button>
-      </div>
-      <div class="row">
-        <label style="width:120px;"><b>🚶 Mode:</b></label>
-        <label class="sort-option"><input type="radio" name="nav-mode" id="nav-mode-walk" checked /> Walking</label>
-        <label class="sort-option"><input type="radio" name="nav-mode" id="nav-mode-drive" /> Driving</label>
-        <button class="btn btn-primary" id="btn-navigate">Show route on map</button>
-      </div>
+    <h2>Hospital Navigation / 医院导航</h2>
+    <p class="muted">Select a hospital — then open in Google Maps / 高德 / Apple / 百度 for directions.</p>
+    <div class="row">
+      <label>Hospital:</label>
+      <select id="nav-hospital"></select>
+      <label>Mode:</label>
+      <select id="nav-mode">
+        <option value="walking">Walking</option>
+        <option value="driving">Driving</option>
+        <option value="transit">Transit</option>
+      </select>
+      <button class="btn btn-light" id="nav-locate">Use my location</button>
     </div>
-
-    <div id="amap-container" class="amap-container"></div>
-    <div id="nav-summary" class="nav-summary muted small">—</div>
+    <div class="card nav-info">
+      <span id="nav-origin" class="muted small">📍 Using default reference point (Beijing) — click 'Use my location' for accurate routing</span>
+    </div>
+    <div id="nav-output">
+      <p class="muted">Loading hospitals…</p>
+    </div>
   </section>
 
   <!-- 用药提醒 -->
