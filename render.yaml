@@ -1,0 +1,23 @@
+# Render 一键部署配置 —— 部署后会自动从 GitHub 拉取并运行
+# 在 render.com 点击 "New > Web Service > Public Git repository" 填入:
+#   https://github.com/WuYusen825/TransMed
+# 或者 "Deploy from Blueprint" 选中本 render.yaml
+services:
+  - type: web
+    name: transmed-api
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m uvicorn transmed_app.backend:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: yes
+    envVars:
+      - key: TRANSMED_DEEPSEEK_API_KEY
+        value: ""    # 部署后在 Render 控制台设置（必填）
+        sync: false
+      - key: TRANSMED_DEEPSEEK_MODEL
+        value: deepseek-v4-pro
+      - key: TRANSMED_DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com/v1
+      - key: TRANSMED_JWT_SECRET
+        generateValue: true  # Render 自动生成随机密钥，不暴露给任何人

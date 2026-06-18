@@ -1,14 +1,21 @@
+# Render.com / Docker 部署用 Dockerfile
 FROM python:3.12-slim
+
 WORKDIR /app
+
+# 构建依赖（尽量减小镜像）
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制源代码
 COPY . .
+
+# 运行时环境变量（API key 在 Render 控制台设置，不写进镜像）
 ENV PORT=8000
-# 🔐 在云平台（Railway/Render/Fly.io）控制台设置环境变量：
-#    TRANSMED_DEEPSEEK_API_KEY=（你的 DeepSeek key，格式以 sk- 开头）
-#    不要把完整 key 写进 Dockerfile 或提交的代码里
-ENV TRANSMED_DEEPSEEK_API_KEY=""
 ENV TRANSMED_DEEPSEEK_MODEL=deepseek-v4-pro
 ENV TRANSMED_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+
 EXPOSE 8000
-CMD ["python3", "run.py"]
+
+# 启动命令（Render 会把 $PORT 自动注入）
+CMD ["sh", "-c", "python -m uvicorn transmed_app.backend:app --host 0.0.0.0 --port ${PORT:-8000}"]
