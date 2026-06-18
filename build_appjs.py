@@ -161,8 +161,9 @@ JS = r'''/* TransMed frontend logic */
       done();
     };
 
-    var showResult = function(translated, confidence, terms, engine) {
+    var showResult = function(translated, confidence, terms, engine, ragCtx) {
       if (!out) return;
+      // ---- 关键：译文框只显示纯净译文（RAG 上下文放下方医学参考区）----
       out.textContent = translated;
       // ---- 置信度条 ----
       var cv = byId('conf-value'); if (cv) cv.textContent = String(Math.round(confidence));
@@ -188,17 +189,34 @@ JS = r'''/* TransMed frontend logic */
           termsBox.innerHTML = '';
         }
       }
+      // ---- RAG 医学参考（独立区域，不混入译文）----
+      var ragBox = byId('rag-reference');
+      if (ragBox) {
+        if (ragCtx && ragCtx.length) {
+          var items = ragCtx.slice(0, 5).map(function(item, i) {
+            var safe = String(item).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return '<li style="margin:4px 0; line-height:1.45;">' + safe + '</li>';
+          }).join('');
+          ragBox.innerHTML =
+            '<details open style="margin-top:10px;">' +
+            '<summary class="muted small" style="cursor:pointer;">📚 医学参考 / Medical reference (' + ragCtx.length + ')</summary>' +
+            '<ul class="muted small" style="margin:8px 0 0 18px; padding-left:4px;">' + items + '</ul>' +
+            '</details>';
+        } else {
+          ragBox.innerHTML = '';
+        }
+      }
     };
 
     tryApi(function(data) {
-      // 后端字段：translated 或 translated_text；confidence 是百分比；matched_terms 或 medical_terms
+      // 后端字段：translated 是纯净译文（不再混 RAG 原文）；confidence 0-100；matched_terms 关键词；rag_context 参考
       var translated = data.translated || data.translated_text || '';
       var confidence = typeof data.confidence === 'number' ? data.confidence : 60;
-      // 后端返回百分比（0-100），直接使用
-      if (confidence < 1) confidence = confidence * 100; // 兼容旧小数格式
+      if (confidence < 1) confidence = confidence * 100;
       var terms = data.matched_terms || data.medical_terms || [];
       var engine = data.engine || 'api';
-      showResult(translated, confidence, terms, engine);
+      var ragCtx = (data.rag_context && data.rag_context.length) ? data.rag_context : [];
+      showResult(translated, confidence, terms, engine, ragCtx);
       done();
     }, function(err) {
       console.warn('translate API failed:', err, '- using offline fallback');

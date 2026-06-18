@@ -116,6 +116,7 @@ class TranslateOut(BaseModel):
     confidence: float
     risk_level: str
     matched_terms: List[str]
+    rag_context: List[str] = []
     source: str
     target: str
     original: str
@@ -322,7 +323,7 @@ def translate_api(body: TranslateIn,
                   db=Depends(get_db)):
     if not body.text or not body.text.strip():
         raise HTTPException(400, "text is required")
-    translated, confidence, matched, engine = do_translate(body.text, body.source, body.target)
+    translated, confidence, matched, engine, rag_ctx = do_translate(body.text, body.source, body.target)
     # --- optionally log
     tid = None
     user = None
@@ -342,6 +343,7 @@ def translate_api(body: TranslateIn,
         db.add(log); db.commit(); db.refresh(log); tid = log.id
     return TranslateOut(translated=translated, confidence=confidence,
                         risk_level=risk_level(confidence), matched_terms=matched,
+                        rag_context=rag_ctx,
                         source=body.source, target=body.target,
                         original=body.text, engine=engine, id=tid)
 

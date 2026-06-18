@@ -231,8 +231,11 @@ def retrieve(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
 _GROQ_TIMEOUT = 30.0  # 秒
 
 
-def _call_groq(text: str, source: str, target: str, rag_context: List[str]) -> Optional[str]:
-    """调用 Groq Chat Completions API 做翻译（llama-3.3-70b-versatile 等模型）。"""
+def _call_groq(text: str, source: str, target: str) -> Optional[str]:
+    """调用 Groq Chat Completions API 做翻译（llama-3.3-70b-versatile 等模型）。
+    关键：**不要**把 RAG 长文档塞进翻译 prompt，否则模型会复述参考文本而不是翻译。
+    术语对齐改用 `_match_terms` 关键词匹配 + 本地 `MEDICAL_TERMS` 词典完成。
+    """
     try:
         import requests
     except ImportError:
@@ -248,32 +251,29 @@ def _call_groq(text: str, source: str, target: str, rag_context: List[str]) -> O
     tgt_name = _lang_display(target)
 
     system_prompt = (
-        f"You are a professional medical translator with deep knowledge of clinical terminology. "
-        f"Translate the following {src_name} text into {tgt_name}. "
-        f"Requirements:\n"
-        f"1. Preserve all medical meaning, especially symptoms, disease names, drug names, dosage instructions, and warnings.\n"
-        f"2. Use standard medical terminology appropriate for clinical context in the target language.\n"
-        f"3. Keep structure intact (bullet points, line breaks, numbered lists).\n"
-        f"4. Output ONLY the translated text — no explanations, no prefixes, no markdown formatting beyond what is in the source.\n"
-        f"5. If the source contains numbers, dosage, measurements or dates, keep them exactly.\n"
-        f"6. Respect patient-facing tone: clear, empathetic, accurate.\n"
-        f"7. Use the provided reference terminology (RAG context) to ensure consistency.\n"
+        f"You are a professional medical translator. Translate from {src_name} to {tgt_name}. "
+        f"Rules:\n"
+        f"- Output ONLY the translation. No intro, no explanation, no notes, no references, no lists, no bullet points.\n"
+        f"- Preserve medical meaning: symptoms, disease names, drug names, dosages, warnings.\n"
+        f"- Use standard medical terminology appropriate for the target language.\n"
+        f"- Keep original structure (if the input is one sentence, output one sentence).\n"
+        f"- Keep numbers, dates, measurements exactly as they appear.\n"
+        f"- If source == target, return the original text unchanged.\n"
     )
 
-    user_msg_parts = [f"Please translate this text from {src_name} to {tgt_name}:\n\n{text}"]
-    if rag_context:
-        user_msg_parts.append("\n---\nReference medical terminology (RAG context):\n")
-        for i, ctx in enumerate(rag_context, 1):
-            user_msg_parts.append(f"{i}. {ctx}")
+    user_msg = (
+        f"Translate from {src_name} to {tgt_name}. Output ONLY the translation — nothing else.\n\n"
+        f"TEXT: {text}"
+    )
 
     payload = {
         "model": settings.GROQ_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "\n".join(user_msg_parts)},
+            {"role": "user", "content": user_msg},
         ],
-        "temperature": 0.3,
-        "max_tokens": 2048,
+        "temperature": 0.2,
+        "max_tokens": 1024,
     }
 
     url = settings.GROQ_BASE_URL.rstrip("/") + "/chat/completions"
@@ -489,37 +489,39 @@ def risk_level(confidence: float) -> str:
 
 
 # -------------------- 公共 API --------------------
-def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str], str]:
-    """返回：(译文, 置信度, 匹配术语, 引擎名称：groq|mymemory|offline|same-language|error)"""
+def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str], str, List[str]]:
+    """返回：(译文, 置信度, 匹配术语, 引擎名称：groq|mymemory|offline|same-language|error, RAG上下文)"""
     text = (text or "").strip()
     if not text:
-        return "", 0.0, [], "empty"
+        return "", 0.0, [], "empty", []
 
     src = _norm_lang(source)
     tgt = _norm_lang(target)
-    if src == tgt:
-        terms = _match_terms(text)
-        return text, 95.0, terms, "same-language"
 
-    # 1) RAG 检索（中英文都搜，用原文做查询）
+    # 1) RAG 检索：保存供前端在"医学参考"区显示，但**不**塞进翻译 prompt（避免模型复述语料）
     rag_tuples = retrieve(text, top_k=5)
     rag_context = [ctx for ctx, _ in rag_tuples]
 
-    # 2) 首选 Groq LLM 翻译（需要 key）
+    # 2) 术语匹配（用于置信度估计和前端高亮）
     matched = _match_terms(text)
-    translated = _call_groq(text, source, target, rag_context)
-    if translated:
-        return translated, _confidence(len(matched), "groq"), matched, "groq"
 
-    # 3) 备选 MyMemory 免费翻译（全球可用，无需 key）
+    if src == tgt:
+        return text, 95.0, matched, "same-language", rag_context
+
+    # 3) 首选 Groq LLM 翻译（纯翻译：RAG 上下文不传进 prompt）
+    translated = _call_groq(text, source, target)
+    if translated:
+        return translated, _confidence(len(matched), "groq"), matched, "groq", rag_context
+
+    # 4) 备选 MyMemory 免费翻译（全球可用，无需 key）
     translated = _call_mymemory(text, source, target)
     if translated:
-        return translated, _confidence(len(matched), "mymemory"), matched, "mymemory"
+        return translated, _confidence(len(matched), "mymemory"), matched, "mymemory", rag_context
 
-    # 4) 兜底离线翻译
+    # 5) 兜底离线翻译
     logger.warning("All online translators failed — falling back to offline rule-based translation")
     offline = _offline(text, source, target)
-    return offline, _confidence(len(matched), "offline"), matched, "offline"
+    return offline, _confidence(len(matched), "offline"), matched, "offline", rag_context
 
 
 def translate_with_rag(text: str, source: str, target: str) -> Dict:
