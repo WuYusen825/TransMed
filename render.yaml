@@ -12,12 +12,12 @@ services:
     healthCheckPath: /health
     autoDeploy: yes
     envVars:
-      - key: TRANSMED_DEEPSEEK_API_KEY
+      - key: TRANSMED_GROQ_API_KEY
         value: ""    # 部署后在 Render 控制台设置（必填）
         sync: false
-      - key: TRANSMED_DEEPSEEK_MODEL
-        value: deepseek-v4-pro
-      - key: TRANSMED_DEEPSEEK_BASE_URL
-        value: https://api.deepseek.com/v1
+      - key: TRANSMED_GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: TRANSMED_GROQ_BASE_URL
+        value: https://api.groq.com/openai/v1
       - key: TRANSMED_JWT_SECRET
         generateValue: true  # Render 自动生成随机密钥，不暴露给任何人

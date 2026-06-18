@@ -231,12 +231,12 @@
       const engine = (res && res.engine) || "unknown";
       const engineEl = document.getElementById("engine-label");
       if (engineEl) {
-        engineEl.textContent = engine === "deepseek" ? "🎯 DeepSeek AI + 医学语料库 RAG"
-                              : engine === "offline" ? "⚠️ 离线术语匹配（DeepSeek 服务不可用，检查你的 API key）"
+        engineEl.textContent = engine === "groq" ? "🎯 Groq AI (llama-3.3-70b) + 医学语料库 RAG"
+                              : engine === "offline" ? "⚠️ 离线术语匹配（Groq 服务不可用，检查你的 API key）"
                               : engine === "same-language" ? "✓ same-language"
                               : "unknown";
         engineEl.classList.remove("online", "offline", "hidden");
-        engineEl.classList.add(engine === "deepseek" ? "online" : "offline");
+        engineEl.classList.add(engine === "groq" ? "online" : "offline");
       }
       const fill = document.getElementById("conf-fill");
       fill.style.width = Math.max(5, confVal) + "%";

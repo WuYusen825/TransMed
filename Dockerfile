@@ -12,8 +12,8 @@ COPY . .
 
 # 运行时环境变量（API key 在 Render 控制台设置，不写进镜像）
 ENV PORT=8000
-ENV TRANSMED_DEEPSEEK_MODEL=deepseek-v4-pro
-ENV TRANSMED_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+ENV TRANSMED_GROQ_MODEL=llama-3.3-70b-versatile
+ENV TRANSMED_GROQ_BASE_URL=https://api.groq.com/openai/v1
 
 EXPOSE 8000
 

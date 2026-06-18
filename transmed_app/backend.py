@@ -355,12 +355,12 @@ def translate_rag_api(body: TranslateIn):
 @app.get("/api/translate/config")
 def translate_config_api():
     """返回翻译引擎配置信息（不泄露完整 API key）。"""
-    api_key = settings.DEEPSEEK_API_KEY
+    api_key = settings.GROQ_API_KEY
     masked = api_key[:6] + "****" + api_key[-4:] if api_key and len(api_key) > 10 else "not set"
     return {
-        "engine": "DeepSeek",
-        "model": settings.DEEPSEEK_MODEL,
-        "base_url": settings.DEEPSEEK_BASE_URL,
+        "engine": "Groq",
+        "model": settings.GROQ_MODEL,
+        "base_url": settings.GROQ_BASE_URL,
         "api_key_masked": masked,
     }
 

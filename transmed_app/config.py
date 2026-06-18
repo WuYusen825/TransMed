@@ -1,4 +1,4 @@
-"""TransMed 配置集中管理 —— 路径 / DB / JWT / 默认凭据 / DeepSeek API 等。"""
+"""TransMed 配置集中管理 —— 路径 / DB / JWT / 默认凭据 / Groq API 等。"""
 from __future__ import annotations
 
 import os
@@ -34,16 +34,16 @@ class Settings:
     # CORS
     CORS_ORIGINS: list = ["*"]
 
-    # ——— DeepSeek API（核心翻译引擎）———
-    # 通过环境变量 TRANSMED_DEEPSEEK_API_KEY 设置（不要写死在代码里，避免被 GitHub 密钥保护拦截）
-    DEEPSEEK_API_KEY: str = os.environ.get("TRANSMED_DEEPSEEK_API_KEY", "")
-    DEEPSEEK_MODEL: str = os.environ.get(
-        "TRANSMED_DEEPSEEK_MODEL",
-        "deepseek-v4-pro",
+    # ——— Groq API（核心翻译引擎，OpenAI 兼容格式，超快响应）———
+    # 通过环境变量 TRANSMED_GROQ_API_KEY 设置
+    GROQ_API_KEY: str = os.environ.get("TRANSMED_GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.environ.get(
+        "TRANSMED_GROQ_MODEL",
+        "llama-3.3-70b-versatile",
     )
-    DEEPSEEK_BASE_URL: str = os.environ.get(
-        "TRANSMED_DEEPSEEK_BASE_URL",
-        "https://api.deepseek.com/v1",
+    GROQ_BASE_URL: str = os.environ.get(
+        "TRANSMED_GROQ_BASE_URL",
+        "https://api.groq.com/openai/v1",
     )
 
 

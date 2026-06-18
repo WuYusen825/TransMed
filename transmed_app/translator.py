@@ -1,5 +1,5 @@
 """核心翻译引擎：
-1) 默认在线：DeepSeek API（基于 deepseek-chat/v4-pro 模型）
+1) 默认在线：Groq API（基于 llama-3.3-70b-versatile 模型，超快推理）
 2) RAG 语料库：
    - corpus_medical.py 中的 2000+ 专业医学术语（疾病/症状/解剖/检验/药品/科室/影像/缩写）
    - data.py 中的药品/分诊规则/医院信息
@@ -227,21 +227,21 @@ def retrieve(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
     return results
 
 
-# -------------------- DeepSeek API 调用 --------------------
-_DEEPSEEK_TIMEOUT = 30.0  # 秒
+# -------------------- Groq API 调用（OpenAI 兼容格式，超快响应）--------------------
+_GROQ_TIMEOUT = 30.0  # 秒
 
 
-def _call_deepseek(text: str, source: str, target: str, rag_context: List[str]) -> Optional[str]:
-    """调用 DeepSeek Chat Completions API 做翻译。"""
+def _call_groq(text: str, source: str, target: str, rag_context: List[str]) -> Optional[str]:
+    """调用 Groq Chat Completions API 做翻译（llama-3.3-70b-versatile 等模型）。"""
     try:
         import requests
     except ImportError:
         logger.error("requests library not installed")
         return None
 
-    api_key = settings.DEEPSEEK_API_KEY
-    if not api_key or api_key == "your-deepseek-api-key-here":
-        logger.warning("DeepSeek API key not configured")
+    api_key = settings.GROQ_API_KEY
+    if not api_key:
+        logger.warning("Groq API key not configured")
         return None
 
     src_name = _lang_display(source)
@@ -267,7 +267,7 @@ def _call_deepseek(text: str, source: str, target: str, rag_context: List[str]) 
             user_msg_parts.append(f"{i}. {ctx}")
 
     payload = {
-        "model": settings.DEEPSEEK_MODEL,
+        "model": settings.GROQ_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n".join(user_msg_parts)},
@@ -276,7 +276,7 @@ def _call_deepseek(text: str, source: str, target: str, rag_context: List[str]) 
         "max_tokens": 2048,
     }
 
-    url = settings.DEEPSEEK_BASE_URL.rstrip("/") + "/chat/completions"
+    url = settings.GROQ_BASE_URL.rstrip("/") + "/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -284,29 +284,29 @@ def _call_deepseek(text: str, source: str, target: str, rag_context: List[str]) 
 
     t0 = time.time()
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=_DEEPSEEK_TIMEOUT)
+        resp = requests.post(url, headers=headers, json=payload, timeout=_GROQ_TIMEOUT)
     except Exception as e:
-        logger.error("DeepSeek request failed: %s", e)
+        logger.error("Groq request failed: %s", e)
         return None
 
     elapsed = time.time() - t0
     if resp.status_code != 200:
-        logger.error("DeepSeek API HTTP %s: %s (%.2fs)", resp.status_code, resp.text[:500], elapsed)
+        logger.error("Groq API HTTP %s: %s (%.2fs)", resp.status_code, resp.text[:500], elapsed)
         return None
 
     try:
         data = resp.json()
     except Exception:
-        logger.error("DeepSeek returned invalid JSON")
+        logger.error("Groq returned invalid JSON")
         return None
 
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        logger.error("DeepSeek unexpected response: %s", json.dumps(data)[:500])
+        logger.error("Groq unexpected response: %s", json.dumps(data)[:500])
         return None
 
-    logger.info("DeepSeek translate OK (%.2fs, model=%s)", elapsed, settings.DEEPSEEK_MODEL)
+    logger.info("Groq translate OK (%.2fs, model=%s)", elapsed, settings.GROQ_MODEL)
     return content.strip() if content else None
 
 
@@ -400,7 +400,7 @@ def _match_terms(original: str) -> List[str]:
 
 
 def _confidence(matched: int, engine_used: str) -> float:
-    base = 92.0 if engine_used == "deepseek" else 55.0
+    base = 92.0 if engine_used == "groq" else 55.0
     boost = min(8.0, matched * 1.2)
     conf = base + boost
     # 限制范围
@@ -420,7 +420,7 @@ def risk_level(confidence: float) -> str:
 
 # -------------------- 公共 API --------------------
 def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str], str]:
-    """返回：(译文, 置信度, 匹配术语, 引擎名称：deepseek|offline|same-language|error)"""
+    """返回：(译文, 置信度, 匹配术语, 引擎名称：groq|offline|same-language|error)"""
     text = (text or "").strip()
     if not text:
         return "", 0.0, [], "empty"
@@ -435,16 +435,16 @@ def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str
     rag_tuples = retrieve(text, top_k=5)
     rag_context = [ctx for ctx, _ in rag_tuples]
 
-    # 2) DeepSeek LLM 翻译
-    translated = _call_deepseek(text, source, target, rag_context)
+    # 2) Groq LLM 翻译
+    translated = _call_groq(text, source, target, rag_context)
     matched = _match_terms(text)
 
     if translated:
-        conf = _confidence(len(matched), "deepseek")
-        return translated, conf, matched, "deepseek"
+        conf = _confidence(len(matched), "groq")
+        return translated, conf, matched, "groq"
 
     # 3) 兜底离线翻译
-    logger.warning("DeepSeek failed → falling back to offline rule-based translation")
+    logger.warning("Groq failed → falling back to offline rule-based translation")
     offline = _offline(text, source, target)
     conf = _confidence(len(matched), "offline")
     return offline, conf, matched, "offline"

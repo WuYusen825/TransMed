@@ -3,19 +3,18 @@ from __future__ import annotations
 import os
 import sys
 
-# DeepSeek API key 默认值（分散存储，运行时拼接）
-_PFX = chr(115) + chr(107) + chr(45)
-_BODY = "c1d06d5bc4924c8a8" + "442a93a9dbb91bf"
-_DEFAULT_KEY = _PFX + _BODY
+# Groq API key —— 请通过环境变量 TRANSMED_GROQ_API_KEY 设置（不要在代码中写入）
+# 申请地址: https://console.groq.com/keys
 
-os.environ.setdefault("TRANSMED_DEEPSEEK_API_KEY", _DEFAULT_KEY)
-os.environ.setdefault("TRANSMED_DEEPSEEK_MODEL", "deepseek-v4-pro")
-os.environ.setdefault("TRANSMED_DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+os.environ.setdefault("TRANSMED_GROQ_MODEL", "llama-3.3-70b-versatile")
+os.environ.setdefault("TRANSMED_GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 os.environ.setdefault("TRANSMED_JWT_SECRET", "transmed-dev-secret-change-me")
 
-KEY = os.environ.get("TRANSMED_DEEPSEEK_API_KEY", "")
+KEY = os.environ.get("TRANSMED_GROQ_API_KEY", "")
 if not KEY or len(KEY) < 20:
-    print("⚠️  TRANSMED_DEEPSEEK_API_KEY 未设置或不完整。请设置后再启动。")
+    print("⚠️  TRANSMED_GROQ_API_KEY 未设置。请先设置：")
+    print("   export TRANSMED_GROQ_API_KEY=\"<你的 Groq API key>\"")
+    print("   然后重新运行：python3 run.py")
     sys.exit(1)
 
 import uvicorn
@@ -28,5 +27,5 @@ if __name__ == "__main__":
     print("   👉 SQLite DB: ./data/transmed.db")
     print("   👉 默认管理员: admin@transmed.io / admin123")
     print("   👉 演示用户: demo@transmed.io / demo123")
-    print(f"   🔑 DeepSeek key 已加载 ({len(KEY)} 字符)")
+    print(f"   🔑 Groq key 已加载 ({len(KEY)} 字符), model={os.environ.get('TRANSMED_GROQ_MODEL')}")
     uvicorn.run("transmed_app.backend:app", host="127.0.0.1", port=8000, log_level="info", reload=False)
