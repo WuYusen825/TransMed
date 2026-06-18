@@ -47,6 +47,7 @@ from .auth import (hash_password, verify_password, create_jwt,
                    decode_jwt, require_current_user, get_current_user_optional)
 from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
                    MEDICATIONS, INSURANCE_PROVIDERS, INDOOR_MAP)
+from . import amap as _amap
 
 # ------------------------------------------------------------------ initialise DB
 models.Base.metadata.create_all(bind=engine)
@@ -354,14 +355,45 @@ def translate_rag_api(body: TranslateIn):
 
 @app.get("/api/translate/config")
 def translate_config_api():
-    """返回翻译引擎配置信息（不泄露完整 API key）。"""
+    """返回翻译引擎配置与在线状态（不泄露完整 API key）。"""
     api_key = settings.GROQ_API_KEY
     masked = api_key[:6] + "****" + api_key[-4:] if api_key and len(api_key) > 10 else "not set"
+    status = "online" if api_key else "offline"
+    error_message = None
+
+    if api_key:
+        try:
+            import requests
+            test_resp = requests.get(
+                settings.GROQ_BASE_URL.rstrip("/") + "/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=6.0,
+            )
+            if test_resp.status_code == 200:
+                status = "online"
+            else:
+                status = "error"
+                try:
+                    msg = test_resp.json().get("error", {}).get("message") or test_resp.text[:120]
+                except Exception:
+                    msg = f"HTTP {test_resp.status_code}"
+                error_message = f"Groq API returned HTTP {test_resp.status_code}: {msg}"
+                logger.warning("Groq key health-check failed: HTTP %s — %s",
+                               test_resp.status_code, error_message)
+        except Exception as e:
+            status = "error"
+            error_message = f"Network error reaching Groq: {e}"
+            logger.warning("Groq health-check network error: %s", e)
+
     return {
         "engine": "Groq",
         "model": settings.GROQ_MODEL,
         "base_url": settings.GROQ_BASE_URL,
         "api_key_masked": masked,
+        "api_key_configured": bool(api_key),
+        "status": status,          # online | offline | error
+        "error_message": error_message,
+        "fallback": "本地术语匹配（专业词替换，非 AI 完整翻译）" if status != "online" else None,
     }
 
 
@@ -454,26 +486,38 @@ def triage(body: TriageIn,
 
 # -------------------------------------------------------------- hospitals
 @app.get("/api/hospitals")
-def hospitals_list(specialty: Optional[str] = None, insurance: Optional[str] = None,
-                    language: Optional[str] = None, urgent: bool = False,
-                    max_wait: Optional[int] = None, min_rating: Optional[float] = None):
-    results = []
-    for h in HOSPITALS:
-        if specialty and specialty not in h.get("specialties", []):
-            continue
-        if insurance and insurance not in h.get("insurance", []):
-            continue
-        if language and language not in h.get("languages", []) and language.lower() not in map(str.lower, h.get("languages", [])):
-            continue
-        if urgent and h.get("wait_minutes", 999) > 30:
-            continue
-        if max_wait is not None and h.get("wait_minutes", 0) > max_wait:
-            continue
-        if min_rating is not None and h.get("rating", 0) < min_rating:
-            continue
-        results.append(_hospital_to_out(h))
-    results.sort(key=lambda x: (x.rating, -x.wait_minutes), reverse=True)
-    return {"hospitals": results, "count": len(results)}
+def hospitals_list(keyword: Optional[str] = "",
+                   city: Optional[str] = "北京",
+                   specialty: Optional[str] = None,
+                   insurance: Optional[str] = None,
+                   language: Optional[str] = None,
+                   urgent: bool = False,
+                   max_wait: Optional[int] = None,
+                   min_rating: Optional[float] = None,
+                   limit: int = 20):
+    """医院列表。优先使用高德 POI 搜索（真实数据），无 key 时回退到本地 demo。"""
+    result = _amap.search_hospitals(keyword=keyword or "", city=city or "北京", limit=limit)
+    hospitals = result.get("hospitals", [])
+    # 本地过滤（高德不支持 specialty/insurance 等字段）
+    if specialty:
+        hospitals = [h for h in hospitals if
+                     specialty.lower() in " ".join([str(s).lower() for s in h.get("specialties", [])]) or
+                     specialty.lower() in str(h.get("name", "")).lower()]
+    if insurance:
+        hospitals = [h for h in hospitals if insurance in h.get("insurance", [])]
+    if language:
+        hospitals = [h for h in hospitals if
+                     language in h.get("languages", []) or
+                     language.lower() in [l.lower() for l in h.get("languages", [])]]
+    if urgent:
+        hospitals = [h for h in hospitals if h.get("wait_minutes", 999) <= 30]
+    if max_wait is not None:
+        hospitals = [h for h in hospitals if h.get("wait_minutes", 0) <= max_wait]
+    if min_rating is not None:
+        hospitals = [h for h in hospitals if (h.get("rating") or 0) >= min_rating]
+    return {"hospitals": hospitals, "count": len(hospitals),
+            "data_source": result.get("data_source", "demo"),
+            "city": result.get("city")}
 
 
 @app.get("/api/hospitals/{hospital_id}")
@@ -484,104 +528,64 @@ def hospital_detail(hospital_id: str):
     return _hospital_to_out(h)
 
 
-# -------------------------------------------------------------- navigation
-def _build_map_for(hospital_id: str):
-    """Return nodes/paths. For now we use INDOOR_MAP for every hospital — but
-    it's easy to extend to per-hospital maps later."""
-    nodes = {n["id"]: n for n in INDOOR_MAP["nodes"]}
-    paths = list(INDOOR_MAP["paths"])
-    return nodes, paths
-
-
-def _shortest_path(from_id: str, to_id: str, nodes: dict, paths):
-    """BFS with weighted distance (using Euclidean coords)."""
-    if from_id not in nodes or to_id not in nodes:
-        return None, 0
-    # build adjacency
-    adj: Dict[str, List[Dict[str, Any]]] = {nid: [] for nid in nodes}
-    for (a, b, desc) in paths:
-        if a in nodes and b in nodes:
-            ax, ay = nodes[a]["x"], nodes[a]["y"]
-            bx, by = nodes[b]["x"], nodes[b]["y"]
-            dist = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
-            adj[a].append({"to": b, "desc": desc, "dist": dist})
-            adj[b].append({"to": a, "desc": f"← {desc}", "dist": dist})
-
-    # Dijkstra (small graph — fine)
-    import heapq
-    dists = {nid: float("inf") for nid in nodes}
-    parents: Dict[str, Optional[str]] = {nid: None for nid in nodes}
-    descs: Dict[str, str] = {nid: "" for nid in nodes}
-    dists[from_id] = 0
-    pq = [(0, from_id)]
-    while pq:
-        d, u = heapq.heappop(pq)
-        if d > dists[u]:
-            continue
-        for edge in adj[u]:
-            nd = d + edge["dist"]
-            if nd < dists[edge["to"]]:
-                dists[edge["to"]] = nd
-                parents[edge["to"]] = u
-                descs[edge["to"]] = edge["desc"]
-                heapq.heappush(pq, (nd, edge["to"]))
-
-    if dists[to_id] == float("inf"):
-        return None, 0
-    # rebuild path
-    path_ids: List[str] = []
-    cur = to_id
-    while cur is not None:
-        path_ids.append(cur)
-        cur = parents[cur]
-    path_ids.reverse()
-    return path_ids, dists[to_id]
-
-
-@app.post("/api/navigation", response_model=NavOut)
-def navigate_post(body: NavIn):
-    return _navigate_impl(body.hospital_id, body.from_node, body.to)
-
-
+# -------------------------------------------------------------- navigation（高德地图版）
 @app.get("/api/navigation")
-def navigate_get(hospital_id: str = "ufh", from_node: str = "entrance", to: str = "pharmacy"):
-    return _navigate_impl(hospital_id, from_node, to)
+def navigate(hospital_id: str = "ufh",
+             from_lng: Optional[float] = None,
+             from_lat: Optional[float] = None,
+             mode: str = "walking"):
+    """返回指定医院的坐标及路径规划摘要。前端用高德 JS API 画地图和路线。
+
+    - hospital_id: 目标医院 id（从 /api/hospitals 返回的 id）
+    - from_lng, from_lat: 可选出发点坐标（如用户位置）；不填则用医院自身坐标
+    - mode: walking / driving
+    """
+    # 找到医院
+    hospital: Optional[Dict[str, Any]] = None
+    # 先找本地数据
+    for h in HOSPITALS:
+        if h["id"] == hospital_id:
+            hospital = h
+            break
+    # 否则用高德 POI 搜索
+    if not hospital:
+        search = _amap.search_hospitals(keyword=hospital_id, city="北京", limit=1)
+        if search.get("hospitals"):
+            hospital = search["hospitals"][0]
+    if not hospital:
+        raise HTTPException(404, "hospital not found. call /api/hospitals for a list")
+
+    to_lng = hospital.get("lng") or hospital.get("longitude")
+    to_lat = hospital.get("lat") or hospital.get("latitude")
+    if to_lng is None or to_lat is None:
+        raise HTTPException(400, "hospital has no coordinates")
+
+    # 如果有出发点，做路径规划
+    direction_result: Dict[str, Any] = {"status": "no_origin", "distance_m": 0, "duration_min": 0, "steps": []}
+    if from_lng is not None and from_lat is not None:
+        direction_result = _amap.direction(from_lng, from_lat, to_lng, to_lat, mode=mode)
+
+    return {
+        "hospital": {
+            "id": hospital.get("id"),
+            "name": hospital.get("name"),
+            "name_zh": hospital.get("name_zh") or hospital.get("name"),
+            "address": hospital.get("address"),
+            "address_zh": hospital.get("address_zh") or hospital.get("address"),
+            "phone": hospital.get("phone"),
+            "rating": hospital.get("rating"),
+            "lng": to_lng,
+            "lat": to_lat,
+        },
+        "mode": mode,
+        "direction": direction_result,
+    }
 
 
-def _navigate_impl(hospital_id: str, from_node: str, to: str):
-    nodes, paths = _build_map_for(hospital_id)
-    if from_node not in nodes:
-        raise HTTPException(404, f"start node '{from_node}' not found. available: {list(nodes.keys())[:20]}")
-    if to not in nodes:
-        raise HTTPException(404, f"destination node '{to}' not found. available: {list(nodes.keys())[:20]}")
-
-    path_ids, total = _shortest_path(from_node, to, nodes, paths)
-    if not path_ids:
-        raise HTTPException(400, "no path found between nodes")
-
-    route: List[NavRoute] = []
-    for i, pid in enumerate(path_ids):
-        n = nodes[pid]
-        instr = ""
-        if i == 0:
-            instr = f"You are at {n['label']} — start"
-        elif i == len(path_ids) - 1:
-            instr = f"You have reached {n['label']}"
-        else:
-            instr = f"Proceed to {n['label']}"
-        route.append(NavRoute(node_id=pid, instruction=instr,
-                               floor=n["floor"], x=n["x"], y=n["y"]))
-    return NavOut(entry=from_node, destination=to, route=route,
-                  total_distance=round(total, 1))
-
-
-@app.get("/api/navigation/map")
-def nav_map(hospital_id: str = "ufh"):
-    nodes, paths = _build_map_for(hospital_id)
-    return {"hospital_id": hospital_id,
-            "nodes": [{"id": n["id"], "label": n["label"], "floor": n["floor"],
-                       "x": n["x"], "y": n["y"]} for n in nodes.values()],
-            "paths": [{"from": p[0], "to": p[1], "description": p[2]} for p in paths]}
+@app.get("/api/amap/config")
+def amap_config():
+    """返回高德地图前端配置（不泄露 Web 服务 key）。"""
+    return _amap.public_config()
 
 
 @app.get("/api/languages")

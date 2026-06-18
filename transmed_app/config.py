@@ -39,12 +39,22 @@ class Settings:
     GROQ_API_KEY: str = os.environ.get("TRANSMED_GROQ_API_KEY", "")
     GROQ_MODEL: str = os.environ.get(
         "TRANSMED_GROQ_MODEL",
-        "llama-3.3-70b-versatile",
+        "groq/compound",
     )
     GROQ_BASE_URL: str = os.environ.get(
         "TRANSMED_GROQ_BASE_URL",
         "https://api.groq.com/openai/v1",
     )
+
+    # ——— 高德地图 AMap ———
+    # ⚠️ 两种 Key 不要混用！
+    #   · TRANSMED_AMAP_KEY  (AMAP_WEB_KEY): 必须是「Web 服务」类型，用于后端 REST API
+    #   · TRANSMED_AMAP_JS_KEY (AMAP_JS_KEY):  必须是「Web 端 JS API」类型，用于前端地图
+    # 申请地址：https://console.amap.com/dev/key/app
+    # 在一个应用下可以添加两个 Key：一个「Web 服务」，一个「Web 端」。
+    # 如果把 JS API 的 key 当作 Web 服务 key，会收到：USERKEY_PLAT_NOMATCH (infocode=10009)
+    AMAP_WEB_KEY: str = os.environ.get("TRANSMED_AMAP_KEY", "bdbaa3cb0db2e16f98321b7c9a10a52e")
+    AMAP_JS_KEY: str = os.environ.get("TRANSMED_AMAP_JS_KEY", "81d33fbdcf7d450c41c8bbb817fd959e")
 
 
 settings = Settings()

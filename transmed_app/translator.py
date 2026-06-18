@@ -291,7 +291,11 @@ def _call_groq(text: str, source: str, target: str, rag_context: List[str]) -> O
 
     elapsed = time.time() - t0
     if resp.status_code != 200:
-        logger.error("Groq API HTTP %s: %s (%.2fs)", resp.status_code, resp.text[:500], elapsed)
+        if resp.status_code == 403:
+            logger.error("Groq API 403 Forbidden — the API key is invalid, revoked, or your account is inactive. "
+                         "Please get a new key from https://console.groq.com/keys")
+        else:
+            logger.error("Groq API HTTP %s: %s (%.2fs)", resp.status_code, resp.text[:500], elapsed)
         return None
 
     try:
@@ -308,6 +312,65 @@ def _call_groq(text: str, source: str, target: str, rag_context: List[str]) -> O
 
     logger.info("Groq translate OK (%.2fs, model=%s)", elapsed, settings.GROQ_MODEL)
     return content.strip() if content else None
+
+
+# -------------------- MyMemory 免费翻译（全球可用，无需 key）--------------------
+# 作为 Groq 不可用时的备选方案；提供邮箱可提升额度
+def _call_mymemory(text: str, source: str, target: str) -> Optional[str]:
+    """MyMemory Translation API — https://mymemory.translated.net/doc/spec.php
+    免费额度：5000 字符/天；带邮箱时更多。"""
+    try:
+        import requests
+    except ImportError:
+        return None
+
+    # MyMemory 使用 2-letter code，如 "en" "zh-CN"
+    src = source.lower()
+    tgt = target.lower()
+    if tgt.startswith("zh"):
+        tgt = "zh-CN"
+    if src.startswith("zh"):
+        src = "zh-CN"
+
+    url = "https://api.mymemory.translated.net/get"
+    params = {"q": text, "langpair": f"{src}|{tgt}", "de": "admin@transmed.io"}
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except Exception as e:
+        logger.warning("MyMemory request failed: %s", e)
+        return None
+    if resp.status_code != 200:
+        logger.warning("MyMemory HTTP %s: %s", resp.status_code, resp.text[:200])
+        return None
+    try:
+        data = resp.json()
+    except Exception:
+        logger.warning("MyMemory bad JSON")
+        return None
+    translated = None
+    # 常见返回格式：{'responseData': {'translatedText': '...'}} 或列表
+    rd = data.get("responseData")
+    if isinstance(rd, dict):
+        translated = rd.get("translatedText")
+    elif isinstance(rd, list) and rd:
+        translated = rd[0].get("translatedText") if isinstance(rd[0], dict) else None
+    if not translated:
+        matches = data.get("matches") or []
+        if isinstance(matches, list) and matches:
+            # matches 可能是 [{translation: ...}, ...]
+            for m in matches[:3]:
+                if isinstance(m, dict):
+                    t = m.get("translation")
+                    if isinstance(t, str):
+                        translated = t
+                        break
+    if isinstance(translated, str) and translated:
+        # 去除 HTML 实体（MyMemory 有时返回 &quot; 等）
+        import html as _html
+        translated = _html.unescape(translated).strip()
+        logger.info("MyMemory translate OK (%.2fs)", resp.elapsed.total_seconds() if hasattr(resp, 'elapsed') else 0)
+        return translated
+    return None
 
 
 # -------------------- 离线规则翻译（兜底） --------------------
@@ -400,7 +463,14 @@ def _match_terms(original: str) -> List[str]:
 
 
 def _confidence(matched: int, engine_used: str) -> float:
-    base = 92.0 if engine_used == "groq" else 55.0
+    if engine_used == "groq":
+        base = 92.0
+    elif engine_used == "mymemory":
+        base = 78.0  # 通用翻译引擎，但不是医学专用
+    elif engine_used == "same-language":
+        base = 95.0
+    else:
+        base = 55.0
     boost = min(8.0, matched * 1.2)
     conf = base + boost
     # 限制范围
@@ -420,7 +490,7 @@ def risk_level(confidence: float) -> str:
 
 # -------------------- 公共 API --------------------
 def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str], str]:
-    """返回：(译文, 置信度, 匹配术语, 引擎名称：groq|offline|same-language|error)"""
+    """返回：(译文, 置信度, 匹配术语, 引擎名称：groq|mymemory|offline|same-language|error)"""
     text = (text or "").strip()
     if not text:
         return "", 0.0, [], "empty"
@@ -435,19 +505,21 @@ def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str
     rag_tuples = retrieve(text, top_k=5)
     rag_context = [ctx for ctx, _ in rag_tuples]
 
-    # 2) Groq LLM 翻译
-    translated = _call_groq(text, source, target, rag_context)
+    # 2) 首选 Groq LLM 翻译（需要 key）
     matched = _match_terms(text)
-
+    translated = _call_groq(text, source, target, rag_context)
     if translated:
-        conf = _confidence(len(matched), "groq")
-        return translated, conf, matched, "groq"
+        return translated, _confidence(len(matched), "groq"), matched, "groq"
 
-    # 3) 兜底离线翻译
-    logger.warning("Groq failed → falling back to offline rule-based translation")
+    # 3) 备选 MyMemory 免费翻译（全球可用，无需 key）
+    translated = _call_mymemory(text, source, target)
+    if translated:
+        return translated, _confidence(len(matched), "mymemory"), matched, "mymemory"
+
+    # 4) 兜底离线翻译
+    logger.warning("All online translators failed — falling back to offline rule-based translation")
     offline = _offline(text, source, target)
-    conf = _confidence(len(matched), "offline")
-    return offline, conf, matched, "offline"
+    return offline, _confidence(len(matched), "offline"), matched, "offline"
 
 
 def translate_with_rag(text: str, source: str, target: str) -> Dict:

@@ -1146,6 +1146,94 @@ select option {
   }
 }
 
+/* ===== 医院数据来源标注 ===== */
+.hospital-note {
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.chip-real {
+  background: rgba(22, 163, 74, 0.15) !important;
+  color: #4ade80 !important;
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.chip-demo {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
+/* ===== 导航：高德地图容器 ===== */
+.amap-container {
+  width: 100%;
+  height: 480px;
+  min-height: 420px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg-card);
+  margin: 14px 0 10px;
+  box-shadow: var(--shadow-sm);
+}
+.amap-container:empty::before {
+  content: "🗺️";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 32px;
+  color: var(--muted);
+}
+.nav-info-card {
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.nav-setup-card .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.nav-setup-card .row:last-child {
+  margin-bottom: 0;
+}
+.nav-setup-card label {
+  flex-shrink: 0;
+}
+.nav-summary {
+  padding: 10px 14px;
+  background: rgba(22, 163, 74, 0.08);
+  border: 1px solid rgba(22, 163, 74, 0.25);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+/* ===== 响应式：地图容器在小屏幕 ===== */
+@media (max-width: 720px) {
+  .amap-container {
+    height: 360px;
+    min-height: 300px;
+  }
+}
+
 /* 选中文字颜色 */
 ::selection {
   background: var(--accent-bg);

@@ -1,29 +1,23 @@
-/* TransMed 前端主逻辑 — 2025 重写：
+/* TransMed 前端主逻辑 — 2025 重构版：
    - 登录/注册 (JWT)
-   - AI 翻译 (deep-translator 真实引擎 + 置信度评估
-   - 症状分诊
-   - 医院推荐 + 室内导航 (SVG)
+   - AI 翻译 (语言选择立即可用，无需先点击按钮)
+   - 症状分诊 + 医院推荐 (高德地图 POI 真实数据，带数据来源标注)
+   - 医院外导航 (高德地图 JS API：步行/驾车)
    - 药品库 / 保险 / 隐私
-   ============================================================ */
+   ================================================================= */
 (() => {
-  // API 基址检测（优先级从高到低）：
-  // 1) meta[name="api-base"] content="http://x.x.x.x:8000"（部署时显式配置）
-  // 2) file:// 协议：必须指向 http://127.0.0.1:8000
-  // 3) 127.0.0.1 / localhost 域名：也指向 http://127.0.0.1:8000（前后端分端口）
-  // 4) 其他：使用相对路径（同源部署 / 生产环境 nginx 反代）
+  // ========== API 基址检测 ==========
   const META_API = document.querySelector('meta[name="api-base"]');
-  const IS_PAGES = location.hostname.includes("github.io") || location.hostname.includes("pages");
   let API = "";
   if (META_API) {
     API = META_API.getAttribute("content") || "";
-  } else if (location.protocol === "file:" || location.hostname === "127.0.0.1" || location.hostname === "localhost" || location.hostname === "") {
+  } else if (location.protocol === "file:" ||
+             location.hostname === "127.0.0.1" ||
+             location.hostname === "localhost" ||
+             location.hostname === "") {
     API = "http://127.0.0.1:8000";
-  } else if (IS_PAGES) {
-    API = ""; // 在 GitHub Pages 上，后端地址由部署者配置（meta api-base 或同源部署）
-  } else {
-    API = "";
   }
-  if (API && !API.endsWith("/")) API = API + ""; // 保持不变：url 以 / 开头
+  if (API && !API.endsWith("/")) API = API + "";
   const TOKEN_KEY = "transmed_token";
   const USER_KEY = "transmed_user";
 
@@ -37,28 +31,63 @@
   const logout = () => { setToken(null); setUser(null); refreshAuthUI(); setActive("home"); };
 
   async function api(url, opts = {}) {
-        const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
-        const token = getToken();
-        if (token) headers["Authorization"] = "Bearer " + token;
-        const fullUrl = API + url;
-        let res;
-        try {
-          res = await fetch(fullUrl, Object.assign({}, opts, { headers, mode: "cors" }));
-        } catch (e) {
-      const hint = IS_PAGES
-        ? "（GitHub Pages 仅托管静态前端。后端需要你自己的服务器运行：在项目中运行 python run.py 启动服务后，将 API 基址配置到 <meta name=\"api-base\"> 或通过同源部署。）"
-        : (location.protocol === "file:"
-            ? "（file:// 打开 HTML 时请确认 Python 后端已启动：在项目目录运行 python run.py）"
-            : "（请确认后端服务正在运行）");
+    const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+    const token = getToken();
+    if (token) headers["Authorization"] = "Bearer " + token;
+    const fullUrl = API + url;
+    let res;
+    try {
+      res = await fetch(fullUrl, Object.assign({}, opts, { headers, mode: "cors" }));
+    } catch (e) {
+      const hint = (location.protocol === "file:")
+        ? "（在本地目录中打开 HTML 时，请确认后端已启动：在项目目录运行 python run.py）"
+        : "（请确认后端服务正在运行）";
       throw new Error("无法连接后端 " + (API || location.origin) + " — " + e.message + hint);
     }
-        if (res.status === 204) return null;
-        const ct = res.headers.get("content-type") || "";
-        if (ct.includes("application/json")) return res.json();
-        return res.text();
-      }
+    if (res.status === 204) return null;
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("application/json")) return res.json();
+    return res.text();
+  }
 
-  /* ----------------------------- 视图切换 ----------------------------- */
+  // ========== 语言：内置静态映射，立即可用 ==========
+  const LANGUAGES = {
+    en: "English", zh: "中文", ja: "日本語", ko: "한국어",
+    fr: "Français", de: "Deutsch", es: "Español", it: "Italiano",
+    ru: "Русский", ar: "العربية", hi: "हिन्दी", pt: "Português",
+    nl: "Nederlands", tr: "Türkçe", vi: "Tiếng Việt", th: "ไทย",
+  };
+
+  function initLanguageSelectors() {
+    const srcSel = document.getElementById("src-lang");
+    const tgtSel = document.getElementById("tgt-lang");
+    if (!srcSel || !tgtSel) return;
+    // 先用内置静态映射填充，确保立即可用
+    srcSel.innerHTML = "";
+    tgtSel.innerHTML = "";
+    for (const code in LANGUAGES) {
+      srcSel.add(new Option(LANGUAGES[code] + " · " + code, code));
+      tgtSel.add(new Option(LANGUAGES[code] + " · " + code, code));
+    }
+    srcSel.value = "en";
+    tgtSel.value = "zh";
+    // 可选：异步用后端语言列表覆盖（如后端语言更多）
+    api("/api/languages").then(serverLangs => {
+      if (serverLangs && typeof serverLangs === "object" && !Array.isArray(serverLangs)) {
+        const curSrc = srcSel.value, curTgt = tgtSel.value;
+        srcSel.innerHTML = "";
+        tgtSel.innerHTML = "";
+        for (const code in serverLangs) {
+          srcSel.add(new Option(serverLangs[code] + " · " + code, code));
+          tgtSel.add(new Option(serverLangs[code] + " · " + code, code));
+        }
+        if (serverLangs[curSrc]) srcSel.value = curSrc;
+        if (serverLangs[curTgt]) tgtSel.value = curTgt;
+      }
+    }).catch(() => { /* 静默失败——静态映射已经足够 */ });
+  }
+
+  // ========== 视图切换 ==========
   const links = document.querySelectorAll(".nav-link");
   const views = document.querySelectorAll(".view");
   function setActive(view) {
@@ -66,9 +95,8 @@
     links.forEach(a => a.classList.toggle("active", a.dataset.view === view));
     if (view === "hospitals") loadHospitals();
     if (view === "medication") loadMedications();
-    if (view === "navigation") buildNavigationOptions();
     if (view === "insurance") { loadInsuranceProviders(); loadMyClaims(); }
-    if (view === "translate") doTranslateReset();
+    if (view === "translate") { /* 语言选择立即可用，无需额外重置 */ }
     if (view === "home") loadStats();
     if (view === "profile") loadProfile();
   }
@@ -77,7 +105,7 @@
     btn.addEventListener("click", () => setActive(btn.dataset.go))
   );
 
-  /* ----------------------------- 认证 UI ----------------------------- */
+  // ========== 认证 UI ==========
   const authModal = document.getElementById("auth-modal");
   document.getElementById("btn-login").addEventListener("click", () => { authModal.classList.remove("hidden"); switchAuthTab("login"); });
   document.getElementById("btn-logout").addEventListener("click", logout);
@@ -139,43 +167,19 @@
     if (user) document.getElementById("user-email").textContent = user.email;
   }
 
-  /* ----------------------------- 语言选择 ----------------------------- */
-  (async () => {
-    const langs = await api("/api/languages");
-    const srcSel = document.getElementById("src-lang");
-    const tgtSel = document.getElementById("tgt-lang");
-    if (langs && typeof langs === "object" && !Array.isArray(langs)) {
-      for (const code in langs) {
-        srcSel.add(new Option(langs[code] + " · " + code, code));
-        tgtSel.add(new Option(langs[code] + " · " + code, code));
-      }
-      srcSel.value = "en"; tgtSel.value = "zh";
-    }
-  })();
-
-  /* ----------------------------- 后端连通性状态 ----------------------------- */
-  (async () => {
-    // 在页面顶部（可选）显示后端状态 —— 静默写入 console，供开发者排查
-    try {
-      const health = await api("/health");
-      console.log("[TransMed] Backend healthy →", JSON.stringify(health));
-    } catch (e) {
-      console.warn("[TransMed] Backend unreachable —", e.message);
-      alert("提示：未能连接 TransMed 后端。请在终端运行：\n\n  cd /Users/johnwoo/Documents/TransMed && python3 -m uvicorn transmed_app.backend:app --host 127.0.0.1 --port 8000\n\n然后刷新本页面。");
-    }
-  })();
-
+  // ========== 翻译：语言互换 & 翻译主逻辑 ==========
   document.getElementById("swap-lang").addEventListener("click", () => {
     const s = document.getElementById("src-lang"), t = document.getElementById("tgt-lang");
     const sv = s.value; s.value = t.value; t.value = sv;
     const st = document.getElementById("src-text");
     const tt = document.getElementById("tgt-text");
     const tv = st.value;
-    st.value = tt.dataset.translated || tt.textContent;
+    st.value = tt.dataset.translated || "";
     tt.textContent = tv;
+    tt.dataset.translated = "";
   });
 
-  /* ----------------------------- 症状模板 chips ----------------------------- */
+  // 快捷症状模板 chips
   const TEMPLATES = [
     "I have a headache and fever since yesterday",
     "My stomach hurts after eating spicy food",
@@ -197,7 +201,6 @@
     chipsBox.appendChild(el);
   });
 
-  /* ----------------------------- 翻译主逻辑 ----------------------------- */
   const btnTranslate = document.getElementById("btn-translate");
   btnTranslate.addEventListener("click", doTranslate);
   document.getElementById("src-text").addEventListener("keydown", e => {
@@ -216,8 +219,8 @@
         method: "POST",
         body: JSON.stringify({
           text,
-        source: document.getElementById("src-lang").value,
-        target: document.getElementById("tgt-lang").value,
+          source: document.getElementById("src-lang").value,
+          target: document.getElementById("tgt-lang").value,
         }),
       });
       const tt = document.getElementById("tgt-text");
@@ -263,9 +266,6 @@
       btnTranslate.textContent = originalText;
     }
   }
-  function doTranslateReset() {
-    // 切换到翻译页时重置状态
-  }
 
   document.getElementById("btn-confirm-risk").addEventListener("click", async () => {
     if (!lastLogId) return;
@@ -295,7 +295,7 @@
     }).join("");
   }
 
-  /* ----------------------------- 分诊 ----------------------------- */
+  // ========== 分诊 ==========
   document.getElementById("btn-triage").addEventListener("click", async () => {
     const symptom = document.getElementById("triage-input").value.trim();
     const res = symptom ? await api("/api/triage", {
@@ -317,6 +317,9 @@
           <strong>Department:</strong> ${dept}${deptZh ? " · " + deptZh : ""}<br>
           ${res.recommendation_en || "Please consult a doctor."}
         `;
+        // 自动把分诊得到的科室关键词预填入医院搜索框
+        const kw = document.getElementById("hospital-keyword");
+        if (kw && dept) kw.value = dept;
       }
     } else {
       el.classList.add("hidden");
@@ -324,34 +327,48 @@
     loadHospitals();
   });
 
-  /* 排序单选按钮触发重新排序 */
+  // 排序单选按钮
   document.querySelectorAll('input[name="sort"]').forEach(r => {
     r.addEventListener("change", () => {
       if (document.querySelector('.view[data-view="hospitals"]').classList.contains("active")) {
-        renderHospitals(lastHospitalsRaw);
+        renderHospitals(lastHospitalsRaw, lastDataSource);
       }
     });
   });
 
   let lastHospitalsRaw = null;
+  let lastDataSource = "demo";
+
+  // 新增搜索按钮绑定
+  const searchBtn = document.getElementById("btn-hospital-search");
+  if (searchBtn) searchBtn.addEventListener("click", () => loadHospitals());
 
   async function loadHospitals() {
+    const kwEl = document.getElementById("hospital-keyword");
+    const cityEl = document.getElementById("hospital-city");
+    const keyword = (kwEl && kwEl.value || "").trim();
+    const city = (cityEl && cityEl.value || "").trim();
     const symptom = document.getElementById("triage-input").value.trim();
-    const insurance = document.getElementById("insurance-filter").value;
-    const specialty = document.getElementById("specialty-filter").value;
     const q = new URLSearchParams();
-    if (symptom) q.set("symptom", symptom);
-    if (insurance) q.set("insurance", insurance);
-    if (specialty) q.set("specialty", specialty);
-    const res = await api("/api/hospitals" + (q.toString() ? "?" + q.toString() : ""));
+    if (keyword) q.set("keyword", keyword);
+    else if (symptom) q.set("keyword", symptom);
+    if (city) q.set("city", city);
+    q.set("limit", "20");
+    let res = null;
+    try { res = await api("/api/hospitals" + (q.toString() ? "?" + q.toString() : "")); } catch (e) { console.warn(e); }
+    let errorMsg = null;
     if (res && Array.isArray(res.hospitals)) {
       lastHospitalsRaw = res.hospitals;
+      lastDataSource = res.data_source || "demo";
+      if (res.amap_error) errorMsg = res.amap_error;
     } else if (res && Array.isArray(res)) {
       lastHospitalsRaw = res;
+      lastDataSource = "demo";
     } else {
       lastHospitalsRaw = [];
+      lastDataSource = "demo";
     }
-    renderHospitals(lastHospitalsRaw);
+    renderHospitals(lastHospitalsRaw, lastDataSource, errorMsg);
   }
 
   function currentSortKey() {
@@ -360,10 +377,22 @@
     return "rating";
   }
 
-  function renderHospitals(list) {
+  function renderHospitals(list, dataSource, amapError) {
     const container = document.getElementById("hospital-list");
+    const note = document.getElementById("hospital-note");
+    if (note) {
+      if (dataSource === "amap") {
+        note.innerHTML = '<div style="margin-bottom:4px;">📍 <b>真实数据来源：高德地图 POI search</b> — rating, address, phone, coordinates 均为真实值。</div>';
+      } else {
+        let errHtml = "";
+        if (amapError) {
+          errHtml = `<div style="margin-top:8px;padding:8px 12px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.35);border-radius:6px;color:#fef3c7;line-height:1.6;"><b>⚠️ 高德 API 诊断：</b><pre style="margin:6px 0 0;padding:0;white-space:pre-wrap;word-break:break-all;white-space:-moz-pre-wrap;white-space:pre-line;">` + String(amapError).replace(/</g, "&lt;") + "</pre></div>";
+        }
+        note.innerHTML = '<div style="margin-bottom:4px;">💡 <b>演示数据（不是真实数据）</b> — 后端未配置或 Web 服务 Key，显示内置样例。配置高德 Web 服务 API Key 后即可启用真实搜索。</div>' + errHtml;
+      }
+    }
     if (!list || list.length === 0) {
-      container.innerHTML = "<p class='muted'>No hospitals match your filters.</p>";
+      container.innerHTML = "<p class='muted'>No hospitals match your filters. Try different city or keyword.</p>";
       return;
     }
     const sortKey = currentSortKey();
@@ -371,31 +400,37 @@
       const va = a[sortKey]; const vb = b[sortKey];
       if (va == null) return 1;
       if (vb == null) return -1;
-      if (sortKey === "rating") return vb - va;
-      return va - vb;
+      if (sortKey === "rating") return (vb || 0) - (va || 0);
+      return (va || 0) - (vb || 0);
     });
 
-    container.innerHTML = sorted.map(h => {
+    container.innerHTML = sorted.map((h, idx) => {
       const specialties = (h.specialties || h.departments || []).slice(0, 5).map(s => {
         const name = typeof s === "string" ? s : (s.name || "");
         return `<span class="chip">${name}</span>`;
       }).join("");
       const insurances = (h.insurance || []).map(i => `<span class="chip">${i}</span>`).join("");
       const languages = (h.languages || []).map(l => `<span class="chip">${l}</span>`).join("");
-      const rating = h.rating != null ? Number(h.rating).toFixed(2) : "-";
-      const wait = h.wait_minutes != null ? `${h.wait_minutes} min` : "-";
-      const dist = h.distance_km != null ? `${h.distance_km} km` : "-";
+      const rating = h.rating != null ? Number(h.rating).toFixed(2) : "—";
+      const wait = h.wait_minutes != null ? `${h.wait_minutes} min` : "—";
+      const dist = h.distance_km != null && h.distance_km > 0 ? `${Number(h.distance_km).toFixed(2)} km` : "—";
       const address = [h.address, h.address_zh].filter(Boolean).join(" · ");
       const phone = h.phone || "";
       const hours = h.hours || "";
+      const hasCoords = h.lat && h.lng;
+      const hid = h.id || ("h-" + idx);
+
+      const sourceBadge = dataSource === "amap"
+        ? '<span class="chip chip-real">AMap · real</span>'
+        : '<span class="chip chip-demo">demo</span>';
 
       return `
-        <div class="hospital">
+        <div class="hospital" data-lat="${h.lat || ""}" data-lng="${h.lng || ""}" data-name="${h.name || ""}">
           <div class="hospital-main">
             <div class="hospital-head">
-              <h4>${h.name || ""}${h.name_zh ? ` <span class="muted small">· ${h.name_zh}</span>` : ""}</h4>
+              <h4>${h.name || ""}${h.name_zh && h.name_zh !== h.name ? ` <span class="muted small">· ${h.name_zh}</span>` : ""} ${sourceBadge}</h4>
             </div>
-            <div class="sub">📍 ${address}</div>
+            <div class="sub">📍 ${address || "—"}</div>
             ${phone ? `<div class="sub">📞 ${phone}</div>` : ""}
             ${hours ? `<div class="sub">🕒 ${hours}</div>` : ""}
             <div class="hospital-meta-row">
@@ -409,453 +444,236 @@
           <div class="hospital-side">
             <div class="rating-badge" title="Rating from public reviews">
               <span class="rating-num">${rating}</span>
-              <span class="rating-label muted small">from public reviews</span>
+              <span class="rating-label muted small">/ 5.00</span>
             </div>
-            <button class="btn btn-light btn-nav" data-goto="navigation">
-              📍 View indoor map
+            <button class="btn btn-light btn-navigate"
+                    data-id="${hid}" data-lat="${h.lat || ""}" data-lng="${h.lng || ""}"
+                    data-name="${(h.name || "").replace(/"/g, "&quot;")}"
+                    data-address="${address.replace(/"/g, "&quot;")}"
+                    ${hasCoords ? "" : "disabled"}>
+              🗺️ Navigate there
             </button>
           </div>
         </div>
       `;
     }).join("");
 
-    container.querySelectorAll('.btn-nav').forEach(btn => {
-      btn.addEventListener("click", () => setActive(btn.dataset.goto));
+    // 绑定导航跳转（使用全局导航状态）
+    container.querySelectorAll(".btn-navigate").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const lng = btn.getAttribute("data-lng");
+        const lat = btn.getAttribute("data-lat");
+        const name = btn.getAttribute("data-name");
+        const address = btn.getAttribute("data-address");
+        setActive("navigation");
+        setTimeout(() => {
+          // 更新目标显示区
+          const destText = document.getElementById("nav-destination-text");
+          if (destText) {
+            destText.innerHTML = `<div><b>${name}</b></div><div class="muted small" style="margin-top:4px;">${address || "—"} · 经度 ${lng}, 纬度 ${lat}</div>`;
+          }
+          // 保存到全局状态
+          window.__navDest = { lng: parseFloat(lng), lat: parseFloat(lat), name: name, address: address };
+          const summary = document.getElementById("nav-summary");
+          if (summary) summary.textContent = "— 点击 “Show route on map” 绘制路线，或输入出发点后查询。";
+          // 清空旧地图内容
+          const mapC = document.getElementById("amap-container");
+          if (mapC) mapC.innerHTML = "";
+          // 若已配置 JS key，先显示目标位置标记
+          renderAmapMap(parseFloat(lng), parseFloat(lat), name, null, null, null);
+        }, 200);
+      });
     });
   }
 
-  /* ----------------------------- 室内导航 ----------------------------- */
-  let lastNavHospitalName = "";
-  async function buildNavigationOptions() {
-    const hospitalSel = document.getElementById("nav-hospital");
-    if (!hospitalSel.options.length) {
-      const res = await api("/api/hospitals");
-      hospitalSel.innerHTML = "";
-      if (res && res.hospitals) {
-        res.hospitals.forEach(h => hospitalSel.add(new Option(h.name, h.id)));
-      }
+  // ========== 导航：高德地图 JS API ==========
+  let amapScriptLoaded = false;
+  let amapConfigCache = null;
+
+  async function ensureAmapConfig() {
+    if (amapConfigCache) return amapConfigCache;
+    try {
+      amapConfigCache = await api("/api/amap/config");
+    } catch (e) {
+      amapConfigCache = { has_js_key: false, has_web_key: false };
     }
-    const hid = hospitalSel.value;
-    const selectedOpt = hospitalSel.options[hospitalSel.selectedIndex];
-    lastNavHospitalName = selectedOpt ? selectedOpt.textContent : (hid || "");
-    const destSel = document.getElementById("nav-dest");
-    destSel.innerHTML = "";
-    const mapRes = await api("/api/navigation/map?hospital_id=" + encodeURIComponent(hid || ""));
-    if (mapRes && mapRes.nodes) {
-      mapRes.nodes.forEach(n => destSel.add(new Option(n.label, n.id)));
-    }
-    document.getElementById("nav-info-hospital").textContent = "🏥 " + lastNavHospitalName;
-    document.getElementById("nav-info-distance").textContent = "";
-    renderMapBase(mapRes);
-  }
-  hospitalSelHandler();
-  function hospitalSelHandler() {
-    const hospitalSel = document.getElementById("nav-hospital");
-    if (!hospitalSel) return;
-    hospitalSel.addEventListener("change", () => buildNavigationOptions());
+    return amapConfigCache;
   }
 
-  document.getElementById("btn-navigate").addEventListener("click", async () => {
-    const hospitalSel = document.getElementById("nav-hospital");
-    const dest = document.getElementById("nav-dest").value;
-    const hid = hospitalSel.value;
-    if (!hid || !dest) return;
-    const nav = await api("/api/navigation?hospital_id=" + encodeURIComponent(hid)
-      + "&from_node=entrance&to=" + encodeURIComponent(dest));
-    const mapRes = await api("/api/navigation/map?hospital_id=" + encodeURIComponent(hid));
-    renderMapBase(mapRes, nav && nav.route || null, true);
-    renderRoute(nav, dest);
+  function loadAmapScript(jsKey) {
+    return new Promise((resolve, reject) => {
+      if (window.AMap) return resolve();
+      if (document.getElementById("amap-loader")) {
+        const existing = document.getElementById("amap-loader");
+        existing.addEventListener("load", () => resolve());
+        existing.addEventListener("error", () => reject(new Error("AMap SDK failed to load")));
+        return;
+      }
+      const s = document.createElement("script");
+      s.id = "amap-loader";
+      s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(jsKey)}&plugin=AMap.Driving,AMap.Walking,AMap.Geocoder,AMap.Geolocation,AMap.Scale,AMap.ToolBar`;
+      s.async = true;
+      s.onload = () => { amapScriptLoaded = true; resolve(); };
+      s.onerror = () => reject(new Error("AMap SDK failed to load — check your JS API key"));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function renderAmapMap(destLng, destLat, destName, fromLng, fromLat, mode) {
+    const container = document.getElementById("amap-container");
+    if (!container) return;
+    const summary = document.getElementById("nav-summary");
+    if (!Number.isFinite(destLng) || !Number.isFinite(destLat)) {
+      container.innerHTML = '<p class="muted" style="padding:16px;">No destination selected. Go to the Hospitals page and click "Navigate there" on a hospital with coordinates.</p>';
+      if (summary) summary.textContent = "—";
+      return;
+    }
+    const cfg = await ensureAmapConfig();
+    if (!cfg || !cfg.has_js_key) {
+      container.innerHTML = `<p class="muted" style="padding:16px;line-height:1.8;">
+        🗺️ 高德地图 JS API 未配置 <code>TRANSMED_AMAP_JS_KEY</code>，无法绘制地图。
+        <br>目标医院：<b>${destName || "—"}</b>（经度 ${destLng.toFixed(6)}，纬度 ${destLat.toFixed(6)}）。
+        <br>作为替代方案，你可以：
+        <ul style="margin-top:8px;">
+          <li>在 <a href="https://uri.amap.com/marker?position=${destLng},${destLat}&name=${encodeURIComponent(destName || "hospital")}" target="_blank" rel="noopener">高德网页版 →</a> 直接查看位置并启动导航</li>
+          <li>在后端配置 <code>TRANSMED_AMAP_JS_KEY</code> 后刷新本页，这里会自动显示可交互地图</li>
+        </ul>
+      </p>`;
+      if (summary) summary.textContent = "（未配置 JS key — 使用高德网页链接作为替代）";
+      return;
+    }
+    try {
+      await loadAmapScript(cfg.js_key);
+    } catch (e) {
+      container.innerHTML = `<p class="muted" style="padding:16px;color:#dc2626;">${e.message}</p>`;
+      return;
+    }
+    container.innerHTML = "";
+    const modeLabel = (mode === "driving") ? "驾车" : "步行";
+    const center = (Number.isFinite(fromLng) && Number.isFinite(fromLat))
+      ? [(fromLng + destLng) / 2, (fromLat + destLat) / 2]
+      : [destLng, destLat];
+    const map = new window.AMap.Map(container, {
+      zoom: (Number.isFinite(fromLng) && Number.isFinite(fromLat)) ? 13 : 15,
+      center: center,
+      resizeEnable: true,
+    });
+    map.addControl(new window.AMap.Scale());
+    map.addControl(new window.AMap.ToolBar({ position: "RB" }));
+
+    // 目标医院标记
+    new window.AMap.Marker({
+      position: [destLng, destLat],
+      map: map,
+      title: destName || "Hospital",
+      label: {
+        content: `<div style="padding:4px 8px;background:#1e40af;color:#fff;border-radius:4px;font-size:12px;">🏥 ${destName || "Destination"}</div>`,
+        direction: "top",
+      },
+    });
+
+    if (Number.isFinite(fromLng) && Number.isFinite(fromLat)) {
+      // 出发点标记
+      new window.AMap.Marker({
+        position: [fromLng, fromLat],
+        map: map,
+        title: "Origin",
+        label: { content: `<div style="padding:4px 8px;background:#16a34a;color:#fff;border-radius:4px;font-size:12px;">📍 Origin</div>`, direction: "top" },
+      });
+      // 路线规划（调用高德 JS API 内置插件）
+      const RoutePlugin = (mode === "driving") ? window.AMap.Driving : window.AMap.Walking;
+      const routeService = new RoutePlugin({
+        map: map,
+        hideMarkers: false,
+        autoFitView: true,
+      });
+      routeService.search(
+        [fromLng, fromLat],
+        [destLng, destLat],
+        (status, result) => {
+          if (status === "complete" && result.routes && result.routes.length) {
+            const r = result.routes[0];
+            const km = (r.distance / 1000).toFixed(2);
+            const min = Math.max(1, Math.round((r.time || 0) / 60));
+            if (summary) {
+              summary.innerHTML = `🚩 ${modeLabel}路线：<b>${km} km</b>，预计 <b>${min} 分钟</b>。数据来源：高德地图 ${mode === "driving" ? "Driving" : "Walking"} API。`;
+            }
+          } else {
+            if (summary) summary.textContent = `⚠️ 未查询到${modeLabel}路线，请确认出发点地址在中国大陆境内。`;
+          }
+        }
+      );
+    } else {
+      if (summary) summary.textContent = `🏥 已标记目标医院位置（${modeLabel}模式）。输入出发点后点击 "Show route on map" 可绘制完整路线，或点击 "Use my location" 使用浏览器定位。`;
+    }
+  }
+
+  // "使用我的位置" 按钮：调用浏览器定位
+  document.getElementById("btn-use-mylocation").addEventListener("click", () => {
+    const fromInput = document.getElementById("nav-from");
+    if (!navigator.geolocation) {
+      alert("浏览器不支持地理定位，请手动输入地址。");
+      return;
+    }
+    fromInput.value = "⏳ 正在定位...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        fromInput.value = `${pos.coords.longitude.toFixed(6)}, ${pos.coords.latitude.toFixed(6)}`;
+      },
+      (err) => {
+        fromInput.value = "";
+        alert("定位失败：" + (err.message || "请检查浏览器权限"));
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
   });
 
-  function computeLayoutCoords(nodes) {
-    // Original backend coords range roughly 80..880 (x) and 200..800 (y)
-    // Scale/translate to fit within the 1000x600 viewBox while keeping room
-    // rectangles readable and leaving outer-wall padding.
-    const padLeft = 60, padRight = 60;
-    const padTop = 60, padBottom = 60;
-    const innerW = 1000 - padLeft - padRight;
-    const innerH = 600 - padTop - padBottom;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    nodes.forEach(n => {
-      if (n.x < minX) minX = n.x;
-      if (n.x > maxX) maxX = n.x;
-      if (n.y < minY) minY = n.y;
-      if (n.y > maxY) maxY = n.y;
-    });
-    const dataW = Math.max(1, maxX - minX);
-    const dataH = Math.max(1, maxY - minY);
-    const scale = Math.min(innerW / dataW, innerH / dataH);
-    const offX = padLeft + (innerW - dataW * scale) / 2 - minX * scale;
-    const offY = padTop + (innerH - dataH * scale) / 2 - minY * scale;
-    return { scale, offX, offY, padLeft, padTop, padRight, padBottom };
-  }
-
-  function splitLabel(label) {
-    // Labels from backend look like "Name / 名称"
-    if (!label) return { en: "", zh: "" };
-    const idx = label.indexOf("/");
-    if (idx === -1) return { en: label.trim(), zh: "" };
-    return { en: label.slice(0, idx).trim(), zh: label.slice(idx + 1).trim() };
-  }
-
-  function renderMapBase(mapRes, route, animate) {
-    const svg = document.getElementById("nav-svg");
-    svg.innerHTML = "";
-    const ns = "http://www.w3.org/2000/svg";
-    svg.setAttribute("viewBox", "0 0 1000 600");
-
-    // ---- Outer building border (with subtle drop shadow) ----
-    const outer = document.createElementNS(ns, "rect");
-    outer.setAttribute("x", 20);
-    outer.setAttribute("y", 20);
-    outer.setAttribute("width", 960);
-    outer.setAttribute("height", 560);
-    outer.setAttribute("rx", 8);
-    outer.setAttribute("fill", "#0f1218");
-    outer.setAttribute("stroke", "#2a2f3a");
-    outer.setAttribute("stroke-width", 2);
-    svg.appendChild(outer);
-
-    // Ground fill (corridors will render on top)
-    const ground = document.createElementNS(ns, "rect");
-    ground.setAttribute("x", 30);
-    ground.setAttribute("y", 30);
-    ground.setAttribute("width", 940);
-    ground.setAttribute("height", 540);
-    ground.setAttribute("rx", 6);
-    ground.setAttribute("fill", "#15181f");
-    svg.appendChild(ground);
-
-    if (!mapRes || !mapRes.nodes || mapRes.nodes.length === 0) {
-      const empty = document.createElementNS(ns, "text");
-      empty.setAttribute("x", 500);
-      empty.setAttribute("y", 300);
-      empty.setAttribute("text-anchor", "middle");
-      empty.setAttribute("fill", "#94a3b8");
-      empty.setAttribute("font-size", "14");
-      empty.textContent = "No floor plan data available for this hospital.";
-      svg.appendChild(empty);
+  // 主要导航按钮：解析出发点 + 调用 renderAmapMap
+  document.getElementById("btn-navigate").addEventListener("click", async () => {
+    const dest = window.__navDest || null;
+    if (!dest || !Number.isFinite(dest.lng) || !Number.isFinite(dest.lat)) {
+      alert('请先在 Hospitals 页选择一所医院并点击 "Navigate there"。');
       return;
     }
+    const destLng = dest.lng, destLat = dest.lat, destName = dest.name;
+    const fromText = document.getElementById("nav-from").value.trim();
+    const mode = document.getElementById("nav-mode-drive").checked ? "driving" : "walking";
+    const cfg = await ensureAmapConfig();
 
-    const layout = computeLayoutCoords(mapRes.nodes);
-    const nodeById = {};
-    mapRes.nodes.forEach(n => {
-      nodeById[n.id] = {
-        ...n,
-        _x: n.x * layout.scale + layout.offX,
-        _y: n.y * layout.scale + layout.offY,
-      };
-    });
-
-    const ROOM_W = 120;
-    const ROOM_H = 80;
-
-    // ---- Determine corridor geometry from node positions ----
-    // Group nodes by similar y to find horizontal corridor rows.
-    const yBuckets = {};
-    const yTol = 25; // tolerance for "same row" in data coords
-    mapRes.nodes.forEach(n => {
-      const key = Math.round(n.y / yTol) * yTol;
-      if (!yBuckets[key]) yBuckets[key] = [];
-      yBuckets[key].push(n);
-    });
-    const rowYs = Object.keys(yBuckets).map(Number).sort((a, b) => a - b);
-
-    // Horizontal corridors at each row (drawn as darker grey bands)
-    rowYs.forEach(rawY => {
-      const y = rawY * layout.scale + layout.offY;
-      const band = document.createElementNS(ns, "rect");
-      band.setAttribute("x", 40);
-      band.setAttribute("y", y - ROOM_H / 2 - 4);
-      band.setAttribute("width", 920);
-      band.setAttribute("height", ROOM_H + 8);
-      band.setAttribute("fill", "#1a1f29");
-      band.setAttribute("rx", 3);
-      svg.appendChild(band);
-    });
-
-    // Vertical corridor connecting the rows (through the central hall area)
-    // Pick a center-x based on where nodes cluster horizontally.
-    let centerX = 500;
-    if (mapRes.nodes.length) {
-      const mid = mapRes.nodes.reduce((s, n) => s + n.x, 0) / mapRes.nodes.length;
-      centerX = mid * layout.scale + layout.offX;
-    }
-    const vCorridor = document.createElementNS(ns, "rect");
-    vCorridor.setAttribute("x", centerX - ROOM_W / 2 - 4);
-    vCorridor.setAttribute("y", 35);
-    vCorridor.setAttribute("width", ROOM_W + 8);
-    vCorridor.setAttribute("height", 530);
-    vCorridor.setAttribute("fill", "#1a1f29");
-    svg.appendChild(vCorridor);
-
-    // ---- Grey path lines between rooms (walking graph) ----
-    if (mapRes.paths && mapRes.paths.length) {
-      mapRes.paths.forEach(p => {
-        const from = nodeById[p.from], to = nodeById[p.to];
-        if (!from || !to) return;
-        const line = document.createElementNS(ns, "line");
-        line.setAttribute("x1", from._x);
-        line.setAttribute("y1", from._y);
-        line.setAttribute("x2", to._x);
-        line.setAttribute("y2", to._y);
-        line.setAttribute("stroke", "#2a2f3a");
-        line.setAttribute("stroke-width", 2);
-        line.setAttribute("stroke-dasharray", "4 3");
-        line.setAttribute("opacity", "0.75");
-        svg.appendChild(line);
-      });
-    }
-
-    // ---- Rooms ----
-    mapRes.nodes.forEach((n, idx) => {
-      const g = document.createElementNS(ns, "g");
-      const x = nodeById[n.id]._x;
-      const y = nodeById[n.id]._y;
-
-      const rect = document.createElementNS(ns, "rect");
-      rect.setAttribute("x", x - ROOM_W / 2);
-      rect.setAttribute("y", y - ROOM_H / 2);
-      rect.setAttribute("width", ROOM_W);
-      rect.setAttribute("height", ROOM_H);
-      rect.setAttribute("rx", 4);
-      rect.setAttribute("fill", "#15181f");
-      rect.setAttribute("stroke", "#2a2f3a");
-      rect.setAttribute("stroke-width", 1.5);
-      g.appendChild(rect);
-
-      // Room code in top-left corner (e.g. R101, R205)
-      const roomCode = document.createElementNS(ns, "text");
-      roomCode.setAttribute("x", x - ROOM_W / 2 + 8);
-      roomCode.setAttribute("y", y - ROOM_H / 2 + 16);
-      roomCode.setAttribute("fill", "#64748b");
-      roomCode.setAttribute("font-size", "10");
-      roomCode.setAttribute("font-family", "ui-monospace, SFMono-Regular, Menlo, monospace");
-      roomCode.textContent = "R" + (n.floor || 1) * 100 + (idx + 1);
-      g.appendChild(roomCode);
-
-      // Floor badge in top-right
-      const floorBadge = document.createElementNS(ns, "text");
-      floorBadge.setAttribute("x", x + ROOM_W / 2 - 8);
-      floorBadge.setAttribute("y", y - ROOM_H / 2 + 16);
-      floorBadge.setAttribute("text-anchor", "end");
-      floorBadge.setAttribute("fill", "#64748b");
-      floorBadge.setAttribute("font-size", "10");
-      floorBadge.textContent = "F" + (n.floor || 1);
-      g.appendChild(floorBadge);
-
-      // Two-line label inside room (English + Chinese)
-      const { en, zh } = splitLabel(n.label);
-      const enText = document.createElementNS(ns, "text");
-      enText.setAttribute("x", x);
-      enText.setAttribute("y", y - 2);
-      enText.setAttribute("text-anchor", "middle");
-      enText.setAttribute("fill", "#e2e8f0");
-      enText.setAttribute("font-size", "12");
-      enText.setAttribute("font-weight", "600");
-      enText.textContent = truncateCenter(en, 18);
-      g.appendChild(enText);
-
-      if (zh) {
-        const zhText = document.createElementNS(ns, "text");
-        zhText.setAttribute("x", x);
-        zhText.setAttribute("y", y + 16);
-        zhText.setAttribute("text-anchor", "middle");
-        zhText.setAttribute("fill", "#94a3b8");
-        zhText.setAttribute("font-size", "11");
-        zhText.textContent = truncateCenter(zh, 10);
-        g.appendChild(zhText);
-      }
-
-      // Center anchor dot (will be overlaid by bigger circles for start/end/route)
-      const dot = document.createElementNS(ns, "circle");
-      dot.setAttribute("cx", x);
-      dot.setAttribute("cy", y + ROOM_H / 2 - 10);
-      dot.setAttribute("r", 2.5);
-      dot.setAttribute("fill", "#475569");
-      g.appendChild(dot);
-
-      svg.appendChild(g);
-    });
-
-    // ---- Highlighted route path (orange) ----
-    const routeIds = new Set();
-    const routeNodes = [];
-    if (route && route.length) {
-      route.forEach(s => {
-        routeIds.add(s.node_id);
-        if (nodeById[s.node_id]) routeNodes.push(nodeById[s.node_id]);
-      });
-      for (let i = 0; i < route.length - 1; i++) {
-        const from = nodeById[route[i].node_id];
-        const to = nodeById[route[i + 1].node_id];
-        if (!from || !to) continue;
-        const line = document.createElementNS(ns, "line");
-        line.setAttribute("x1", from._x);
-        line.setAttribute("y1", from._y);
-        line.setAttribute("x2", to._x);
-        line.setAttribute("y2", to._y);
-        line.setAttribute("stroke", "#f97316");
-        line.setAttribute("stroke-width", 4);
-        line.setAttribute("stroke-linecap", "round");
-        line.setAttribute("stroke-linejoin", "round");
-        if (animate) {
-          line.setAttribute("opacity", "0");
-          setTimeout(() => {
-            line.style.transition = "opacity 0.6s ease";
-            line.setAttribute("opacity", "1");
-          }, 120 * i);
+    let fromLng = null, fromLat = null;
+    if (fromText) {
+      // 如果输入是 "数字,数字"（坐标格式），直接解析
+      if (/^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(fromText)) {
+        const parts = fromText.split(",").map(s => parseFloat(s.trim()));
+        fromLng = parts[0]; fromLat = parts[1];
+      } else {
+        // 否则用 JS 端 Geocoder（需要 JS key）
+        if (cfg && cfg.has_js_key) {
+          try {
+            await loadAmapScript(cfg.js_key);
+            const geocoder = new window.AMap.Geocoder({ city: "全国" });
+            const result = await new Promise((resolve, reject) => {
+              geocoder.getLocation(fromText, (status, r) => {
+                if (status === "complete" && r.geocodes && r.geocodes.length) resolve(r.geocodes[0]);
+                else reject(new Error("address not found by AMap"));
+              });
+            });
+            fromLng = result.location.lng;
+            fromLat = result.location.lat;
+          } catch (e) {
+            alert('无法解析出发点地址。请尝试：\n1) 使用 "Use my location" 按钮自动定位\n2) 直接输入坐标（格式：经度,纬度，例如 116.397428,39.90923）');
+            return;
+          }
+        } else {
+          alert('需要配置 TRANSMED_AMAP_JS_KEY 来解析地址。请改用 "Use my location" 或直接输入坐标（经度,纬度）。');
+          return;
         }
-        svg.appendChild(line);
       }
     }
+    renderAmapMap(destLng, destLat, destName, fromLng, fromLat, mode);
+  });
 
-    // ---- Markers: START / DESTINATION / route-node dots ----
-    mapRes.nodes.forEach((n, i) => {
-      const x = nodeById[n.id]._x;
-      const y = nodeById[n.id]._y;
-      const inRoute = routeIds.has(n.id);
-      const isStart = n.id === "entrance";
-      const isDest = route && route.length && route[route.length - 1].node_id === n.id;
-
-      let fill = "transparent";
-      let stroke = "#2a2f3a";
-      let r = 5;
-      let labelText = "";
-      let labelColor = "#94a3b8";
-
-      if (inRoute) {
-        fill = "#f97316";
-        stroke = "#f97316";
-        r = 6;
-      }
-      if (isStart) {
-        fill = "#22c55e";
-        stroke = "#22c55e";
-        r = 7;
-        labelText = "START";
-        labelColor = "#22c55e";
-      }
-      if (isDest) {
-        fill = "#f97316";
-        stroke = "#f97316";
-        r = 8;
-        labelText = "DESTINATION";
-        labelColor = "#f97316";
-      }
-
-      const c = document.createElementNS(ns, "circle");
-      c.setAttribute("cx", x);
-      c.setAttribute("cy", y - ROOM_H / 2 - 12);
-      c.setAttribute("r", r);
-      c.setAttribute("fill", fill);
-      c.setAttribute("stroke", stroke);
-      c.setAttribute("stroke-width", 2);
-      if (animate && inRoute) {
-        c.setAttribute("opacity", "0");
-        setTimeout(() => {
-          c.style.transition = "opacity 0.5s ease";
-          c.setAttribute("opacity", "1");
-        }, 100 * i);
-      }
-      svg.appendChild(c);
-
-      if (labelText) {
-        const t = document.createElementNS(ns, "text");
-        t.setAttribute("x", x);
-        t.setAttribute("y", y - ROOM_H / 2 - 22);
-        t.setAttribute("text-anchor", "middle");
-        t.setAttribute("fill", labelColor);
-        t.setAttribute("font-size", "11");
-        t.setAttribute("font-weight", "700");
-        t.setAttribute("letter-spacing", "1");
-        t.textContent = labelText;
-        svg.appendChild(t);
-      }
-    });
-
-    // ---- Compass / floor label in a corner ----
-    const corner = document.createElementNS(ns, "g");
-    const cornerBox = document.createElementNS(ns, "rect");
-    cornerBox.setAttribute("x", 30);
-    cornerBox.setAttribute("y", 30);
-    cornerBox.setAttribute("width", 120);
-    cornerBox.setAttribute("height", 28);
-    cornerBox.setAttribute("rx", 4);
-    cornerBox.setAttribute("fill", "#0f1218");
-    cornerBox.setAttribute("stroke", "#2a2f3a");
-    corner.appendChild(cornerBox);
-    const cornerText = document.createElementNS(ns, "text");
-    cornerText.setAttribute("x", 90);
-    cornerText.setAttribute("y", 49);
-    cornerText.setAttribute("text-anchor", "middle");
-    cornerText.setAttribute("fill", "#94a3b8");
-    cornerText.setAttribute("font-size", "11");
-    cornerText.textContent = "HOSPITAL FLOOR PLAN";
-    corner.appendChild(cornerText);
-    svg.appendChild(corner);
-  }
-
-  function truncateCenter(s, n) {
-    if (!s) return "";
-    if (s.length <= n) return s;
-    if (n <= 3) return s.slice(0, n);
-    const half = Math.floor((n - 1) / 2);
-    return s.slice(0, half) + "…" + s.slice(s.length - half);
-  }
-
-  function renderRoute(nav, dest) {
-    const routeEl = document.getElementById("nav-route");
-    const distEl = document.getElementById("nav-info-distance");
-    if (!nav || !nav.route || nav.route.length === 0) {
-      routeEl.innerHTML = `<p class="muted">No route available. Try a different destination.</p>`;
-      if (distEl) distEl.textContent = "";
-      return;
-    }
-    const total = nav.total_distance;
-    const distStr = (typeof total === "number") ? total.toFixed(0) : (total || "—");
-    if (distEl) {
-      distEl.textContent = "🚶 Total distance: " + distStr + " units · " + nav.route.length + " steps";
-    }
-
-    const first = nav.route[0];
-    const last = nav.route[nav.route.length - 1];
-    const firstNode = typeof first === "object" ? (first.label || first.node_id || "") : "";
-    const lastNode = typeof last === "object" ? (last.label || last.node_id || dest) : dest;
-
-    const steps = nav.route.map((s, i) => {
-      const label = (typeof s === "object" && s.label) ? s.label : (s.node_id || "");
-      const parts = splitLabel(label);
-      const en = parts.en || label || "Step " + (i + 1);
-      const zh = parts.zh ? `<span class="muted small"> · ${parts.zh}</span>` : "";
-      const instruction = (typeof s === "object" && s.instruction) ? s.instruction : "";
-      const floor = (typeof s === "object" && s.floor) ? `Floor ${s.floor}` : "";
-      return `
-        <div class="nav-step ${i === 0 ? "nav-step-current" : ""}">
-          <span class="nav-step-pill">${i + 1}</span>
-          <div class="nav-step-body">
-            <div class="nav-step-title">${en}${zh}</div>
-            ${floor ? `<div class="nav-step-meta muted small">${floor}</div>` : ""}
-            ${instruction ? `<div class="nav-step-instr muted small">${instruction}</div>` : ""}
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    routeEl.innerHTML = `
-      <div class="card" style="padding:12px 14px;margin-bottom:12px;border-color:var(--border-strong);">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h4 style="margin:0;">📍 Route to ${splitLabel(lastNode).en || lastNode}</h4>
-          <span class="chip" style="color:var(--accent-soft);">${distStr} units</span>
-        </div>
-        <p class="muted small" style="margin-top:6px;margin-bottom:0;">From: ${splitLabel(firstNode).en || firstNode}</p>
-      </div>
-      ${steps}
-    `;
-  }
-
-  /* ----------------------------- 用药 ----------------------------- */
+  // ========== 用药 ==========
   (async () => {
     const picker = document.getElementById("med-picker");
     const res = await api("/api/medications");
@@ -909,7 +727,6 @@
       list.innerHTML = "<p class='muted'>Log in to save your medications and reminders.</p>"; return;
     }
     const res = await api("/api/medications/record");
-    // 支持两种格式: 数组 或 { records: [...] }
     const records = Array.isArray(res) ? res : (res && res.records) || [];
     if (!records.length) {
       list.innerHTML = "<p class='muted'>No medications saved yet.</p>"; return;
@@ -932,7 +749,7 @@
     });
   }
 
-  /* ----------------------------- 保险 ----------------------------- */
+  // ========== 保险 ==========
   async function loadInsuranceProviders() {
     const res = await api("/api/insurance");
     const sel = document.getElementById("ins-provider");
@@ -950,9 +767,7 @@
     const prov = document.getElementById("ins-provider").value;
     if (!prov) return;
     const el = document.getElementById("ins-result");
-    el.innerHTML = "<p class='muted'>Loading...</p>";
-    // 提示信息
-    const checklist = `
+    el.innerHTML = `
       <div class="checklist"><h4>📄 Required documents</h4>
       <ul>
         <li>Valid passport / ID card</li>
@@ -971,12 +786,11 @@
       </ul></div>
       <div class="checklist"><h4>💡 Tips</h4>
       <ul>
-        <li>Always ask hospital for "fapiao" (official invoice) — this is required for all claims in China</li>
+        <li>Always ask hospital for "fapiao" (official invoice) — required for all claims in China</li>
         <li>Take photos of every document before submitting</li>
         <li>Ask the hospital to stamp all diagnostic reports</li>
       </ul></div>
     `;
-    el.innerHTML = checklist;
   });
 
   const addClaimBtn = document.getElementById("btn-add-claim");
@@ -1019,7 +833,7 @@
   }
   loadMyClaims();
 
-  /* ----------------------------- 隐私 ----------------------------- */
+  // ========== 隐私 ==========
   document.getElementById("btn-export").addEventListener("click", async () => {
     const box = document.getElementById("export-box");
     if (!getToken()) { alert("Log in to export your data."); return; }
@@ -1035,7 +849,7 @@
     alert(res && res.message || "Your records have been wiped.");
   });
 
-  /* ----------------------------- 反馈 ----------------------------- */
+  // ========== 反馈 ==========
   document.getElementById("btn-send-feedback").addEventListener("click", async () => {
     const category = document.getElementById("fb-category").value;
     const rating = parseInt(document.getElementById("fb-rating").value, 10);
@@ -1048,15 +862,15 @@
     setTimeout(() => { status.textContent = ""; }, 4000);
   });
 
-  /* ----------------------------- 个人中心 ----------------------------- */
+  // ========== 个人中心 ==========
   function loadProfile() {
     const body = document.getElementById("profile-body");
     const user = getUser();
     if (!user) {
       body.innerHTML = `
         <p class="muted">Log in or create an account to access your saved medications, translations and claims.</p>
-        <button class="btn btn-primary" id="btn-profile-login-2">Log in / Register</button>`;
-      document.getElementById("btn-profile-login-2").addEventListener("click", () => {
+        <button class="btn btn-primary" id="btn-profile-login">Log in / Register</button>`;
+      document.getElementById("btn-profile-login").addEventListener("click", () => {
         authModal.classList.remove("hidden"); switchAuthTab("login");
       });
       return;
@@ -1096,7 +910,7 @@
     });
   }
 
-  /* ----------------------------- 首页统计 ----------------------------- */
+  // ========== 首页统计 ==========
   async function loadStats() {
     const res = await api("/api/stats");
     const el = document.getElementById("home-stats");
@@ -1112,7 +926,8 @@
     el.innerHTML = items.map(([l, n]) => `<div class="stat"><div class="stat-num">${n || 0}</div><div class="stat-label">${l}</div></div>`).join("");
   }
 
-  /* ----------------------------- 启动 ----------------------------- */
+  // ========== 启动 ==========
+  initLanguageSelectors();  // 语言选择立即填充
   refreshAuthUI();
   loadStats();
   setActive("home");
