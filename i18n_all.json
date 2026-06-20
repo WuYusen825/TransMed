@@ -690,7 +690,9 @@
   "nv_mode": "モード",
   "nv_walking": "🚶 歩行",
   "nv_driving": "運転中🚗",
-  "nv_transit": "🚇 移行"
+  "nv_transit": "🚇 移行",
+  "hp_national_leader": "{sp} 全国トップクラス",
+  "hp_grade_3a": "三級甲等（最上位）"
  },
  "ko": {
   "tagline": "AI 의료 동반자 · 중국 내 치료",
@@ -921,7 +923,9 @@
   "nv_mode": "모드",
   "nv_walking": "🚶 걷기",
   "nv_driving": "🚗 운전",
-  "nv_transit": "🚇 교통수단"
+  "nv_transit": "🚇 교통수단",
+  "hp_national_leader": "{sp} 전국 선도",
+  "hp_grade_3a": "3급 갑등(최상위)"
  },
  "fr": {
   "tagline": "Compagnon médical IA · soins en Chine",
@@ -1152,7 +1156,9 @@
   "ui_translating": "Interface de traduction…",
   "ui_ready": "Langue prête",
   "please_login": "Veuillez vous connecter d'abord",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "Leader national en {sp}",
+  "hp_grade_3a": "Niveau III-A (top)"
  },
  "de": {
   "tagline": "Künstliche-Intelligenz-Medizinbegleiter · in-China-Betreuung",
@@ -1383,7 +1389,9 @@
   "ui_translating": "Übersetzungsinterface…",
   "ui_ready": "Sprache bereit",
   "please_login": "Bitte melden Sie sich zunächst an",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "Bundesweit führend in {sp}",
+  "hp_grade_3a": "Klasse III-A (Spitze)"
  },
  "es": {
   "tagline": "Compañero médico de IA · atención en China",
@@ -1614,7 +1622,9 @@
   "ui_translating": "Interfaz de traducción…",
   "ui_ready": "Idioma listo",
   "please_login": "Por favor, inicie sesión primero",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "Líder nacional en {sp}",
+  "hp_grade_3a": "Clase III-A (máximo)"
  },
  "it": {
   "tagline": "Compagno medico AI · assistenza in Cina",
@@ -1845,7 +1855,9 @@
   "ui_ready": "Lingua pronta",
   "please_login": "Per favore, accedi prima",
   "welcome_back": "Benvenuto di nuovo, {name}",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "Leader nazionale in {sp}",
+  "hp_grade_3a": "Classe III-A (top)"
  },
  "ru": {
   "tagline": "Интеллектуальный медицинский компаньон · уход в Китае",
@@ -2076,7 +2088,9 @@
   "ui_ready": "Язык готов",
   "please_login": "Пожалуйста, сначала войдите в систему",
   "welcome_back": "Добро пожаловать обратно, {name}",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "Национальный лидер в {sp}",
+  "hp_grade_3a": "Класс III-A (высший)"
  },
  "ar": {
   "tagline": "رفيق طبي ذكاء اصطناعي · الرعاية في الصين",
@@ -2307,7 +2321,9 @@
   "ui_ready": "اللغة جاهزة",
   "please_login": "الرجاء تسجيل الدخول أولاً",
   "welcome_back": "مرحباً بك مرة أخرى، {name}",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "رائد وطني في {sp}",
+  "hp_grade_3a": "الفئة III-A (الأعلى)"
  },
  "pt": {
   "tagline": "Companheiro médico de IA · cuidado na China",
@@ -2538,7 +2554,9 @@
   "ui_ready": "Idioma pronto",
   "please_login": "Por favor, faça login primeiro",
   "welcome_back": "Bem-vindo de volta, {name}",
-  "tr_conf_line": "confidence {n}% · {risk}"
+  "tr_conf_line": "confidence {n}% · {risk}",
+  "hp_national_leader": "Líder nacional em {sp}",
+  "hp_grade_3a": "Classe III-A (topo)"
  },
  "hi": {
   "tagline": "एआई मेडिकल साथी · चीन में देखभाल",
@@ -2769,6 +2787,8 @@
   "ui_ready": "भाषा तैयार",
   "please_login": "कृपया पहले लॉग इन करें",
   "welcome_back": "स्वागत है, {name}",
-  "tr_conf_line": "आत्मविश्वास {n}% · {risk}"
+  "tr_conf_line": "आत्मविश्वास {n}% · {risk}",
+  "hp_national_leader": "{sp} में राष्ट्रीय अग्रणी",
+  "hp_grade_3a": "श्रेणी III-A (शीर्ष)"
  }
 }

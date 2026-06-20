@@ -150,7 +150,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     hp_loading: 'Loading hospitals…', hp_matching: 'Matching hospitals…', hp_describe_first: 'Describe your symptoms first', hp_loc_first: 'Tap “Use my location” first',
     hp_loc_added: 'Location set — distances added',
     hp_urgent: '🚨 URGENT', hp_recommended: '✓ Recommended department', hp_call120: 'If this is an emergency, call 120 now.',
-    hp_best_match: '#{n} best match', hp_match_cap: 'match', hp_strong_in: 'Strong in {sp}', hp_rated: 'Rated {r}/5', hp_reviews: '{n} reviews', hp_reviews_paren: '({n} reviews)',
+    hp_best_match: '#{n} best match', hp_match_cap: 'match', hp_strong_in: 'Strong in {sp}', hp_national_leader: 'National leader in {sp}', hp_grade_3a: 'Class III-A (top tier)', hp_rated: 'Rated {r}/5', hp_reviews: '{n} reviews', hp_reviews_paren: '({n} reviews)',
     hp_km_you: '{km} km from you', hp_km: '{km} km', hp_speaks: 'Speaks your language', hp_emergency: 'Strong emergency services', hp_navigate: 'Navigate →',
     hp_no_hosp: 'No hospitals found. Try a broader symptom or department.', hp_waking_t: 'Recommendation service is waking up', hp_waking_d: 'Showing all hospitals meanwhile. Try again in a moment.',
     nv_eyebrow: 'Navigation', nv_title: 'Navigate to care', nv_lede: "See the drawn route and turn-by-turn directions on a live map — or hand off to your phone's maps app in one tap.",
@@ -220,7 +220,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     hp_loading: '加载医院中…', hp_matching: '匹配医院中…', hp_describe_first: '请先描述症状', hp_loc_first: '请先点“用我的位置”',
     hp_loc_added: '已定位——已加入距离',
     hp_urgent: '🚨 紧急', hp_recommended: '✓ 推荐科室', hp_call120: '若为紧急情况，请立即拨打 120。',
-    hp_best_match: '#{n} 最匹配', hp_match_cap: '匹配', hp_strong_in: '{sp} 专科突出', hp_rated: '评分 {r}/5', hp_reviews: '{n} 条评价', hp_reviews_paren: '（{n} 条评价）',
+    hp_best_match: '#{n} 最匹配', hp_match_cap: '匹配', hp_strong_in: '{sp} 专科突出', hp_national_leader: '{sp} 全国领先', hp_grade_3a: '三级甲等', hp_rated: '评分 {r}/5', hp_reviews: '{n} 条评价', hp_reviews_paren: '（{n} 条评价）',
     hp_km_you: '距你 {km} 公里', hp_km: '{km} 公里', hp_speaks: '可用你的语言沟通', hp_emergency: '急诊能力强', hp_navigate: '导航 →',
     hp_no_hosp: '未找到医院。试试更宽泛的症状或科室。', hp_waking_t: '推荐服务正在唤醒', hp_waking_d: '同时先显示全部医院，请稍后重试。',
     nv_eyebrow: '导航', nv_title: '导航就医', nv_lede: '在实时地图上查看画出的路线与转向步骤——或一键交给手机地图 App。',
@@ -280,63 +280,92 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     DICT = buildDict(lang); applyI18n();   // 全部 12 种语言已预生成内嵌 → 即时切换，无需联网
   }
 
-  // ---- 导航转向步骤：离线模板翻译（解析高德中文指令 → 目标语言；保留路名中文 + 数字）----
-  // 关键：批量调用引擎翻译会把多条短指令合并成一句话且慢；这里纯前端即时完成。
+  // ---- 导航转向步骤：用高德结构化字段（方向 / 道路 / 主辅动作）即时本地化 ----
+  // 高德 Driving/Walking 每个 step 提供 orientation(8 向) / road(路名) / action(主要动作) /
+  // assistant_action(辅助动作)，皆为有限枚举；据此重建指令，绝不切分路名字符串，
+  // 因此杜绝「海北路 → 海 north 路」这类污染。动作词查不到则省略（宁可少说，不乱拼）。
   var NAV_LEX = {
-    en: { walk: 'Walk', drive: 'Drive', m: ' m', km: ' km', along: 'along ', arrive: 'arrive at the destination',
+    en: { walk: 'Walk', drive: 'Drive', take: 'Take ', m: ' m', km: ' km', along: ' along ', arrive: 'Arrive at the destination',
       dir: { '东': 'east', '南': 'south', '西': 'west', '北': 'north', '东北': 'northeast', '东南': 'southeast', '西北': 'northwest', '西南': 'southwest' },
-      act: [['向左前方行走', 'bear left'], ['向右前方行走', 'bear right'], ['到达目的地', 'arrive at the destination'], ['左转', 'turn left'], ['右转', 'turn right'], ['直行', 'go straight'], ['掉头', 'make a U-turn'], ['靠左', 'keep left'], ['靠右', 'keep right'], ['进入', 'enter '], ['过', 'pass '], ['后', ' then ']] },
-    ja: { walk: '歩く', drive: '運転', m: 'm', km: 'km', along: '沿い ', arrive: '目的地に到着',
+      act: { '左转': 'turn left', '右转': 'turn right', '直行': 'continue straight', '掉头': 'make a U-turn', '靠左': 'keep left', '靠右': 'keep right', '向左前方行驶': 'bear left', '向右前方行驶': 'bear right', '减速行驶': 'slow down', '到达目的地': 'arrive at the destination', '到达途经地': 'reach the waypoint', '进入主路': 'merge onto the main road', '进入辅路': 'take the side road', '进入匝道': 'take the ramp', '进入环岛': 'enter the roundabout', '驶出环岛': 'exit the roundabout' } },
+    ja: { walk: '歩く', drive: '運転', take: '乗車 ', m: ' m', km: ' km', along: ' に沿って', arrive: '目的地に到着',
       dir: { '东': '東', '南': '南', '西': '西', '北': '北', '东北': '北東', '东南': '南東', '西北': '北西', '西南': '南西' },
-      act: [['向左前方行走', '左前方へ'], ['向右前方行走', '右前方へ'], ['到达目的地', '目的地に到着'], ['左转', '左折'], ['右转', '右折'], ['直行', '直進'], ['掉头', 'Uターン'], ['靠左', '左寄り'], ['靠右', '右寄り'], ['进入', '進入 '], ['过', '通過 '], ['后', ' その後 ']] },
-    ko: { walk: '도보', drive: '운전', m: 'm', km: 'km', along: '를 따라 ', arrive: '목적지 도착',
+      act: { '左转': '左折', '右转': '右折', '直行': '直進', '掉头': 'Uターン', '靠左': '左寄り', '靠右': '右寄り', '向左前方行驶': '斜め左前方へ', '向右前方行驶': '斜め右前方へ', '减速行驶': '減速', '到达目的地': '目的地に到着', '到达途经地': '経由地に到着', '进入主路': '本線に合流', '进入辅路': '側道に入る', '进入匝道': 'ランプに入る', '进入环岛': 'ロータリーに入る', '驶出环岛': 'ロータリーを出る' } },
+    ko: { walk: '도보', drive: '운전', take: '탑승 ', m: ' m', km: ' km', along: ' 을 따라', arrive: '목적지 도착',
       dir: { '东': '동', '南': '남', '西': '서', '北': '북', '东北': '북동', '东南': '남동', '西北': '북서', '西南': '남서' },
-      act: [['向左前方行走', '좌측 전방'], ['向右前方行走', '우측 전방'], ['到达目的地', '목적지 도착'], ['左转', '좌회전'], ['右转', '우회전'], ['直行', '직진'], ['掉头', '유턴'], ['靠左', '좌측'], ['靠右', '우측'], ['进入', '진입 '], ['过', '통과 '], ['后', ' 그 다음 ']] },
-    fr: { walk: 'Marcher', drive: 'Conduire', m: ' m', km: ' km', along: 'le long de ', arrive: 'arriver à destination',
+      act: { '左转': '좌회전', '右转': '우회전', '直行': '직진', '掉头': '유턴', '靠左': '좌측 유지', '靠右': '우측 유지', '向左前方行驶': '좌측 전방으로', '向右前方行驶': '우측 전방으로', '减速行驶': '감속', '到达目的地': '목적지 도착', '到达途经地': '경유지 도착', '进入主路': '본선 합류', '进入辅路': '측도 진입', '进入匝道': '램프 진입', '进入环岛': '회전교차로 진입', '驶出环岛': '회전교차로 진출' } },
+    fr: { walk: 'Marcher', drive: 'Conduire', take: 'Prendre ', m: ' m', km: ' km', along: ' le long de ', arrive: 'Arriver à destination',
       dir: { '东': 'est', '南': 'sud', '西': 'ouest', '北': 'nord', '东北': 'nord-est', '东南': 'sud-est', '西北': 'nord-ouest', '西南': 'sud-ouest' },
-      act: [['向左前方行走', 'légèrement à gauche'], ['向右前方行走', 'légèrement à droite'], ['到达目的地', 'arriver à destination'], ['左转', 'tourner à gauche'], ['右转', 'tourner à droite'], ['直行', 'tout droit'], ['掉头', 'faire demi-tour'], ['靠左', 'rester à gauche'], ['靠右', 'rester à droite'], ['进入', 'entrer '], ['过', 'passer '], ['后', ' puis ']] },
-    de: { walk: 'Gehen', drive: 'Fahren', m: ' m', km: ' km', along: 'entlang ', arrive: 'Ziel erreichen',
+      act: { '左转': 'tourner à gauche', '右转': 'tourner à droite', '直行': 'continuer tout droit', '掉头': 'faire demi-tour', '靠左': 'rester à gauche', '靠右': 'rester à droite', '向左前方行驶': 'serrer à gauche', '向右前方行驶': 'serrer à droite', '减速行驶': 'ralentir', '到达目的地': 'arriver à destination', '到达途经地': 'atteindre le point de passage', '进入主路': "rejoindre l'axe principal", '进入辅路': 'prendre la contre-allée', '进入匝道': "prendre la bretelle", '进入环岛': 'entrer dans le rond-point', '驶出环岛': 'sortir du rond-point' } },
+    de: { walk: 'Gehen', drive: 'Fahren', take: 'Nehmen ', m: ' m', km: ' km', along: ' entlang ', arrive: 'Ziel erreichen',
       dir: { '东': 'Osten', '南': 'Süden', '西': 'Westen', '北': 'Norden', '东北': 'Nordosten', '东南': 'Südosten', '西北': 'Nordwesten', '西南': 'Südwesten' },
-      act: [['向左前方行走', 'leicht links'], ['向右前方行走', 'leicht rechts'], ['到达目的地', 'Ziel erreichen'], ['左转', 'links abbiegen'], ['右转', 'rechts abbiegen'], ['直行', 'geradeaus'], ['掉头', 'wenden'], ['靠左', 'links halten'], ['靠右', 'rechts halten'], ['进入', 'einbiegen '], ['过', 'vorbei '], ['后', ' dann ']] },
-    es: { walk: 'Caminar', drive: 'Conducir', m: ' m', km: ' km', along: 'por ', arrive: 'llegar al destino',
+      act: { '左转': 'links abbiegen', '右转': 'rechts abbiegen', '直行': 'geradeaus weiter', '掉头': 'wenden', '靠左': 'links halten', '靠右': 'rechts halten', '向左前方行驶': 'halb links', '向右前方行驶': 'halb rechts', '减速行驶': 'langsamer fahren', '到达目的地': 'Ziel erreichen', '到达途经地': 'Zwischenziel erreichen', '进入主路': 'auf die Hauptstraße auffahren', '进入辅路': 'auf die Nebenstraße', '进入匝道': 'auf die Auffahrt', '进入环岛': 'in den Kreisverkehr', '驶出环岛': 'Kreisverkehr verlassen' } },
+    es: { walk: 'Caminar', drive: 'Conducir', take: 'Tomar ', m: ' m', km: ' km', along: ' por ', arrive: 'Llegar al destino',
       dir: { '东': 'este', '南': 'sur', '西': 'oeste', '北': 'norte', '东北': 'noreste', '东南': 'sureste', '西北': 'noroeste', '西南': 'suroeste' },
-      act: [['向左前方行走', 'ligeramente a la izquierda'], ['向右前方行走', 'ligeramente a la derecha'], ['到达目的地', 'llegar al destino'], ['左转', 'girar a la izquierda'], ['右转', 'girar a la derecha'], ['直行', 'seguir recto'], ['掉头', 'dar la vuelta'], ['靠左', 'mantenerse a la izquierda'], ['靠右', 'mantenerse a la derecha'], ['进入', 'entrar '], ['过', 'pasar '], ['后', ' luego ']] },
-    it: { walk: 'Camminare', drive: 'Guidare', m: ' m', km: ' km', along: 'lungo ', arrive: 'arrivare a destinazione',
+      act: { '左转': 'girar a la izquierda', '右转': 'girar a la derecha', '直行': 'seguir recto', '掉头': 'dar la vuelta', '靠左': 'mantenerse a la izquierda', '靠右': 'mantenerse a la derecha', '向左前方行驶': 'ligeramente a la izquierda', '向右前方行驶': 'ligeramente a la derecha', '减速行驶': 'reducir la velocidad', '到达目的地': 'llegar al destino', '到达途经地': 'llegar al punto de paso', '进入主路': 'incorporarse a la vía principal', '进入辅路': 'tomar la vía de servicio', '进入匝道': 'tomar la rampa', '进入环岛': 'entrar en la rotonda', '驶出环岛': 'salir de la rotonda' } },
+    it: { walk: 'Camminare', drive: 'Guidare', take: 'Prendere ', m: ' m', km: ' km', along: ' lungo ', arrive: 'Arrivare a destinazione',
       dir: { '东': 'est', '南': 'sud', '西': 'ovest', '北': 'nord', '东北': 'nord-est', '东南': 'sud-est', '西北': 'nord-ovest', '西南': 'sud-ovest' },
-      act: [['向左前方行走', 'leggermente a sinistra'], ['向右前方行走', 'leggermente a destra'], ['到达目的地', 'arrivare a destinazione'], ['左转', 'girare a sinistra'], ['右转', 'girare a destra'], ['直行', 'dritto'], ['掉头', 'inversione a U'], ['靠左', 'tenere la sinistra'], ['靠右', 'tenere la destra'], ['进入', 'entrare '], ['过', 'passare '], ['后', ' poi ']] },
-    ru: { walk: 'Идти', drive: 'Ехать', m: ' м', km: ' км', along: 'по ', arrive: 'прибыть в пункт назначения',
-      dir: { '东': 'восток', '南': 'юг', '西': 'запад', '北': 'север', '东北': 'северо-восток', '东南': 'юго-восток', '西北': 'северо-запад', '西南': 'юго-запад' },
-      act: [['向左前方行走', 'левее'], ['向右前方行走', 'правее'], ['到达目的地', 'прибыть в пункт назначения'], ['左转', 'повернуть налево'], ['右转', 'повернуть направо'], ['直行', 'прямо'], ['掉头', 'развернуться'], ['靠左', 'держаться левее'], ['靠右', 'держаться правее'], ['进入', 'въехать '], ['过', 'проехать '], ['后', ' затем ']] },
-    pt: { walk: 'Caminhar', drive: 'Conduzir', m: ' m', km: ' km', along: 'ao longo de ', arrive: 'chegar ao destino',
-      dir: { '东': 'leste', '南': 'sul', '西': 'oeste', '北': 'norte', '东北': 'nordeste', '东南': 'sudeste', '西北': 'noroeste', '西南': 'sudoeste' },
-      act: [['向左前方行走', 'ligeiramente à esquerda'], ['向右前方行走', 'ligeiramente à direita'], ['到达目的地', 'chegar ao destino'], ['左转', 'virar à esquerda'], ['右转', 'virar à direita'], ['直行', 'seguir em frente'], ['掉头', 'fazer retorno'], ['靠左', 'manter-se à esquerda'], ['靠右', 'manter-se à direita'], ['进入', 'entrar '], ['过', 'passar '], ['后', ' depois ']] },
-    ar: { walk: 'سِر', drive: 'قُد', m: ' م', km: ' كم', along: 'على طول ', arrive: 'الوصول إلى الوجهة',
+      act: { '左转': 'svoltare a sinistra', '右转': 'svoltare a destra', '直行': 'proseguire dritto', '掉头': 'fare inversione', '靠左': 'tenere la sinistra', '靠右': 'tenere la destra', '向左前方行驶': 'leggermente a sinistra', '向右前方行驶': 'leggermente a destra', '减速行驶': 'rallentare', '到达目的地': 'arrivare a destinazione', '到达途经地': 'raggiungere la tappa', '进入主路': 'immettersi sulla strada principale', '进入辅路': 'prendere la complanare', '进入匝道': 'prendere la rampa', '进入环岛': 'entrare nella rotonda', '驶出环岛': 'uscire dalla rotonda' } },
+    ru: { walk: 'Идти', drive: 'Ехать', take: 'Сесть на ', m: ' м', km: ' км', along: ' по ', arrive: 'Прибыть в пункт назначения',
+      dir: { '东': 'на восток', '南': 'на юг', '西': 'на запад', '北': 'на север', '东北': 'на северо-восток', '东南': 'на юго-восток', '西北': 'на северо-запад', '西南': 'на юго-запад' },
+      act: { '左转': 'повернуть налево', '右转': 'повернуть направо', '直行': 'прямо', '掉头': 'развернуться', '靠左': 'держаться левее', '靠右': 'держаться правее', '向左前方行驶': 'левее', '向右前方行驶': 'правее', '减速行驶': 'снизить скорость', '到达目的地': 'прибыть в пункт назначения', '到达途经地': 'прибыть в промежуточную точку', '进入主路': 'выехать на главную дорогу', '进入辅路': 'на дублёр', '进入匝道': 'на съезд', '进入环岛': 'на круговое движение', '驶出环岛': 'съехать с кольца' } },
+    pt: { walk: 'Caminhar', drive: 'Conduzir', take: 'Apanhar ', m: ' m', km: ' km', along: ' ao longo de ', arrive: 'Chegar ao destino',
+      dir: { '东': 'este', '南': 'sul', '西': 'oeste', '北': 'norte', '东北': 'nordeste', '东南': 'sudeste', '西北': 'noroeste', '西南': 'sudoeste' },
+      act: { '左转': 'virar à esquerda', '右转': 'virar à direita', '直行': 'seguir em frente', '掉头': 'fazer inversão', '靠左': 'manter-se à esquerda', '靠右': 'manter-se à direita', '向左前方行驶': 'ligeiramente à esquerda', '向右前方行驶': 'ligeiramente à direita', '减速行驶': 'reduzir a velocidade', '到达目的地': 'chegar ao destino', '到达途经地': 'chegar ao ponto de passagem', '进入主路': 'entrar na via principal', '进入辅路': 'tomar a via secundária', '进入匝道': 'tomar a rampa', '进入环岛': 'entrar na rotunda', '驶出环岛': 'sair da rotunda' } },
+    ar: { walk: 'سِر', drive: 'قُد', take: 'استقل ', m: ' م', km: ' كم', along: ' على طول ', arrive: 'الوصول إلى الوجهة',
       dir: { '东': 'شرقاً', '南': 'جنوباً', '西': 'غرباً', '北': 'شمالاً', '东北': 'شمال شرق', '东南': 'جنوب شرق', '西北': 'شمال غرب', '西南': 'جنوب غرب' },
-      act: [['向左前方行走', 'يساراً قليلاً'], ['向右前方行走', 'يميناً قليلاً'], ['到达目的地', 'الوصول إلى الوجهة'], ['左转', 'انعطف يساراً'], ['右转', 'انعطف يميناً'], ['直行', 'استمر مستقيماً'], ['掉头', 'استدر'], ['靠左', 'الزم اليسار'], ['靠右', 'الزم اليمين'], ['进入', 'ادخل '], ['过', 'تجاوز '], ['后', ' ثم ']] },
-    hi: { walk: 'चलें', drive: 'ड्राइव करें', m: ' मी', km: ' किमी', along: 'के साथ ', arrive: 'गंतव्य पर पहुँचें',
+      act: { '左转': 'انعطف يساراً', '右转': 'انعطف يميناً', '直行': 'استمر مستقيماً', '掉头': 'استدر', '靠左': 'الزم اليسار', '靠右': 'الزم اليمين', '向左前方行驶': 'يساراً قليلاً', '向右前方行驶': 'يميناً قليلاً', '减速行驶': 'خفّف السرعة', '到达目的地': 'الوصول إلى الوجهة', '到达途经地': 'الوصول إلى نقطة العبور', '进入主路': 'ادخل الطريق الرئيسي', '进入辅路': 'ادخل الطريق الجانبي', '进入匝道': 'ادخل المنحدر', '进入环岛': 'ادخل الدوار', '驶出环岛': 'اخرج من الدوار' } },
+    hi: { walk: 'चलें', drive: 'ड्राइव करें', take: 'लें ', m: ' मी', km: ' किमी', along: ' के साथ ', arrive: 'गंतव्य पर पहुँचें',
       dir: { '东': 'पूर्व', '南': 'दक्षिण', '西': 'पश्चिम', '北': 'उत्तर', '东北': 'उत्तर-पूर्व', '东南': 'दक्षिण-पूर्व', '西北': 'उत्तर-पश्चिम', '西南': 'दक्षिण-पश्चिम' },
-      act: [['向左前方行走', 'थोड़ा बाएँ'], ['向右前方行走', 'थोड़ा दाएँ'], ['到达目的地', 'गंतव्य पर पहुँचें'], ['左转', 'बाएँ मुड़ें'], ['右转', 'दाएँ मुड़ें'], ['直行', 'सीधे चलें'], ['掉头', 'यू-टर्न लें'], ['靠左', 'बाएँ रहें'], ['靠右', 'दाएँ रहें'], ['进入', 'प्रवेश करें '], ['过', 'पार करें '], ['后', ' फिर ']] }
+      act: { '左转': 'बाएँ मुड़ें', '右转': 'दाएँ मुड़ें', '直行': 'सीधे चलें', '掉头': 'यू-टर्न लें', '靠左': 'बाएँ रहें', '靠右': 'दाएँ रहें', '向左前方行驶': 'थोड़ा बाएँ', '向右前方行驶': 'थोड़ा दाएँ', '减速行驶': 'गति धीमी करें', '到达目的地': 'गंतव्य पर पहुँचें', '到达途经地': 'मार्गबिंदु पर पहुँचें', '进入主路': 'मुख्य मार्ग पर आएँ', '进入辅路': 'सर्विस रोड लें', '进入匝道': 'रैंप लें', '进入环岛': 'चक्र में प्रवेश करें', '驶出环岛': 'चक्र से बाहर निकलें' } }
   };
-  function localizeStep(zh, lang) {
-    if (!zh || lang === 'zh' || !NAV_LEX[lang]) return zh;
-    var L = NAV_LEX[lang];
-    var acts = L.act.slice().sort(function (a, b) { return b[0].length - a[0].length; });
-    var localizeAct = function (a) { if (!a) return ''; acts.forEach(function (p) { a = a.split(p[0]).join(p[1]); }); return a.replace(/\s+/g, ' ').trim(); };
-    var m = zh.match(/^(?:沿(.+?))?向([东南西北]{1,2})(步行|行驶)([\d.]+)(米|公里)(.*)$/);
+  // 把高德主/辅动作（如 "右转进入主路"）映射为目标语；优先整段匹配，否则逐枚举词替换。
+  function localizeAction(L, phrase) {
+    if (!phrase) return '';
+    phrase = phrase.replace(/行走/g, '行驶').replace(/(右前方|左前方|正前方|前方)/g, ''); // 归一 + 去掉方位前缀
+    if (!phrase) return '';
+    if (L.act[phrase]) return L.act[phrase];
+    var keys = Object.keys(L.act).sort(function (a, b) { return b.length - a.length; });
+    var out = phrase, hit = false;
+    keys.forEach(function (k) { if (out.indexOf(k) >= 0) { out = out.split(k).join(' ' + L.act[k] + ' '); hit = true; } });
+    return hit ? out.replace(/\s+/g, ' ').trim() : '';
+  }
+  // 兜底：高德未给结构化字段时，安全解析中文指令（提取路名但绝不切分它）。
+  function parseZhStep(L, s) {
+    var zh = (s && s.zh) || '';
+    if (!zh) return '';
+    var m = zh.match(/^(?:沿(.+?))?(?:向([东南西北]{1,2})(?:方向)?)?(步行|行驶|骑行)([\d.]+)(公里|千米|米)(.*)$/);
     if (m) {
       var road = m[1], dir = m[2], verb = m[3], dist = m[4], unit = m[5], act = m[6];
-      var s = (verb === '行驶' ? L.drive : L.walk) + ' ' + dist + (unit === '公里' ? L.km : L.m) + ' ' + (L.dir[dir] || dir);
-      if (road) s += ' ' + L.along + road;
-      var a = localizeAct(act);
-      if (a) s += ', ' + a;
-      return s;
+      var out = (verb === '步行' ? L.walk : L.drive) + ' ' + dist + (unit === '米' ? L.m : L.km);
+      if (L.dir[dir]) out += ' ' + L.dir[dir];
+      if (road) out += L.along + road; // 路名保持中文
+      var a = localizeAction(L, act);
+      if (a) out += ', ' + a;
+      return out.replace(/\s+/g, ' ').trim();
     }
-    // 兜底：逐 token 替换（保留路名/线路名中文）
-    var out = zh;
-    acts.forEach(function (p) { out = out.split(p[0]).join(p[1]); });
-    Object.keys(L.dir).sort(function (a, b) { return b.length - a.length; }).forEach(function (d) { out = out.split(d).join(' ' + L.dir[d] + ' '); });
-    out = out.split('步行').join(L.walk + ' ').split('行驶').join(L.drive + ' ').split('公里').join(L.km).split('米').join(L.m).split('沿').join(L.along).split('向').join('');
-    return out.replace(/\s+/g, ' ').trim();
+    var a2 = localizeAction(L, zh); // 纯动作类（如"到达目的地""左转进入主路"）
+    return a2 || zh;                // 实在解析不了，原样中文，不污染
+  }
+  // s: 结构化步骤 { walk, d(米), ori(中文方向), road(中文路名), act, ast, line, zh }
+  function buildStepText(s, lang) {
+    if (!s) return '';
+    if (lang === 'zh') return s.zh || '';
+    var L = NAV_LEX[lang] || NAV_LEX.en;
+    if (s.line) { // 公交/地铁线路：线路名保持中文
+      var seg = L.take + s.line;
+      if (s.d) seg += ' (' + (s.d > 1000 ? (s.d / 1000).toFixed(1) + L.km : Math.round(s.d) + L.m) + ')';
+      return seg.trim();
+    }
+    // 高德结构化字段（方向/路名/主辅动作）全缺时，回退到安全解析
+    if (!s.ori && !s.road && !s.act && !s.ast) return parseZhStep(L, s);
+    var distTxt = s.d ? (s.d > 1000 ? (s.d / 1000).toFixed(1) + L.km : Math.round(s.d) + L.m) : '';
+    var head = (s.walk ? L.walk : L.drive) + (distTxt ? ' ' + distTxt : '');
+    if (s.ori && L.dir[s.ori]) head += ' ' + L.dir[s.ori];
+    if (s.road) head += L.along + s.road; // 路名始终保持中文
+    var tail = [localizeAction(L, s.act), localizeAction(L, s.ast)].filter(Boolean).join(', ');
+    if (tail) head += ', ' + tail;
+    return head.replace(/\s+/g, ' ').trim();
   }
 
   // language picker (first visit) + switcher
@@ -369,12 +398,23 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
   }
 
   /* ============================== fallback hospital data ============================== */
+  // 兜底医院名单（后端/高德不可用时用于医院页与导航下拉）。覆盖各大专科的北京三甲医院。
+  // 高德可用时会被真实 POI 结果替换；坐标为 GCJ-02 近似值，仅用于离线兜底。
   var FALLBACK_HOSPITALS = [
-    { id: 'pumch', name: 'Peking Union Medical College Hospital', name_zh: '北京协和医院', address_zh: '东城区帅府园1号', phone: '+86 10 6915 6114', rating: 4.9, review_count: 8600, specialties: ['General Medicine', 'Cardiology', 'Neurology', 'Endocrinology'], lng: 116.41513, lat: 39.912815 },
-    { id: 'bjh', name: 'Beijing Hospital', name_zh: '北京医院', address_zh: '东城区东单大华路1号', phone: '+86 10 8513 2266', rating: 4.6, review_count: 2100, specialties: ['Geriatrics', 'Cardiology', 'Endocrinology'], lng: 116.415057, lat: 39.903772 },
-    { id: 'tongren', name: 'Beijing Tongren Hospital', name_zh: '北京同仁医院', address_zh: '东城区东交民巷1号', phone: '+86 10 5826 9988', rating: 4.6, review_count: 4200, specialties: ['Ophthalmology', 'ENT'], lng: 116.417224, lat: 39.902721 },
-    { id: 'ufh', name: 'Beijing United Family Hospital', name_zh: '北京和睦家医院', address_zh: '朝阳区将台路2号', phone: '+86 10 5927 7000', rating: 4.8, review_count: 1500, specialties: ['Family Medicine', 'Pediatrics', 'Emergency', 'OB/GYN'], lng: 116.4677, lat: 39.9754 },
-    { id: '301', name: 'PLA General Hospital (301)', name_zh: '解放军总医院', address_zh: '海淀区复兴路28号', phone: '+86 10 6693 7329', rating: 4.7, review_count: 5300, specialties: ['Trauma Surgery', 'Oncology', 'Cardiology', 'Orthopedics'], lng: 116.2875, lat: 39.9067 }
+    { id: 'pumch', name: 'Peking Union Medical College Hospital', name_zh: '北京协和医院', address_zh: '东城区帅府园1号', phone: '+86 10 6915 6114', rating: 4.9, grade: '三级甲等', specialties: ['General Medicine', 'Rheumatology', 'Endocrinology', 'OB/GYN'], lng: 116.41513, lat: 39.912815 },
+    { id: 'fuwai', name: 'Fuwai Hospital', name_zh: '中国医学科学院阜外医院', address_zh: '西城区北礼士路167号', phone: '+86 10 8839 8866', rating: 4.8, grade: '三级甲等', specialties: ['Cardiology', 'Cardiovascular Surgery'], lng: 116.3668, lat: 39.9300 },
+    { id: 'anzhen', name: 'Beijing Anzhen Hospital', name_zh: '首都医科大学附属北京安贞医院', address_zh: '朝阳区安贞路2号', phone: '+86 10 6445 6655', rating: 4.6, grade: '三级甲等', specialties: ['Cardiology', 'Cardiovascular Surgery'], lng: 116.3985, lat: 39.9740 },
+    { id: 'tiantan', name: 'Beijing Tiantan Hospital', name_zh: '首都医科大学附属北京天坛医院', address_zh: '丰台区南四环西路119号', phone: '+86 10 5997 8001', rating: 4.7, grade: '三级甲等', specialties: ['Neurosurgery', 'Neurology'], lng: 116.3360, lat: 39.8350 },
+    { id: 'xuanwu', name: 'Xuanwu Hospital', name_zh: '首都医科大学宣武医院', address_zh: '西城区长椿街45号', phone: '+86 10 8319 8277', rating: 4.6, grade: '三级甲等', specialties: ['Neurology', 'Neurosurgery', 'Geriatrics'], lng: 116.3570, lat: 39.8895 },
+    { id: 'cancer', name: 'Cancer Hospital CAMS', name_zh: '中国医学科学院肿瘤医院', address_zh: '朝阳区潘家园南里17号', phone: '+86 10 8778 8800', rating: 4.7, grade: '三级甲等', specialties: ['Oncology', 'Surgical Oncology'], lng: 116.4610, lat: 39.8750 },
+    { id: 'tongren', name: 'Beijing Tongren Hospital', name_zh: '首都医科大学附属北京同仁医院', address_zh: '东城区东交民巷1号', phone: '+86 10 5826 9988', rating: 4.6, grade: '三级甲等', specialties: ['Ophthalmology', 'ENT'], lng: 116.417224, lat: 39.902721 },
+    { id: 'jst', name: 'Beijing Jishuitan Hospital', name_zh: '北京积水潭医院', address_zh: '西城区新街口东街31号', phone: '+86 10 5851 6688', rating: 4.6, grade: '三级甲等', specialties: ['Orthopedics', 'Sports Medicine'], lng: 116.3710, lat: 39.9430 },
+    { id: 'children', name: "Beijing Children's Hospital", name_zh: '首都医科大学附属北京儿童医院', address_zh: '西城区南礼士路56号', phone: '+86 10 5961 6161', rating: 4.5, grade: '三级甲等', specialties: ['Pediatrics', 'Pediatric Surgery'], lng: 116.3530, lat: 39.9170 },
+    { id: 'pku-people', name: "Peking University People's Hospital", name_zh: '北京大学人民医院', address_zh: '西城区西直门南大街11号', phone: '+86 10 8832 6666', rating: 4.6, grade: '三级甲等', specialties: ['Hematology', 'Trauma Surgery', 'Cardiology'], lng: 116.3530, lat: 39.9380 },
+    { id: 'cyhospital', name: 'China-Japan Friendship Hospital', name_zh: '中日友好医院', address_zh: '朝阳区樱花园东街2号', phone: '+86 10 8420 5566', rating: 4.5, grade: '三级甲等', specialties: ['Respiratory', 'Pulmonary / Respiratory', 'Dermatology'], lng: 116.4260, lat: 39.9740 },
+    { id: 'bjh', name: 'Beijing Hospital', name_zh: '北京医院', address_zh: '东城区东单大华路1号', phone: '+86 10 8513 2266', rating: 4.6, grade: '三级甲等', specialties: ['Geriatrics', 'Cardiology', 'Endocrinology'], lng: 116.415057, lat: 39.903772 },
+    { id: '301', name: 'PLA General Hospital (301)', name_zh: '中国人民解放军总医院', address_zh: '海淀区复兴路28号', phone: '+86 10 6693 7329', rating: 4.7, grade: '三级甲等', specialties: ['Trauma Surgery', 'Oncology', 'Orthopedics', 'Nephrology'], lng: 116.2875, lat: 39.9067 },
+    { id: 'ufh', name: 'Beijing United Family Hospital', name_zh: '北京和睦家医院', address_zh: '朝阳区将台路2号', phone: '+86 10 5927 7000', rating: 4.8, grade: '外资综合', specialties: ['Family Medicine', 'Pediatrics', 'Emergency', 'OB/GYN'], lng: 116.4677, lat: 39.9754 }
   ];
 
   /* ============================================================
@@ -538,12 +578,15 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
   function cleanReasons(rec, h, distKm) {
     var out = [], seen = {};
     function push(type, text) { if (text && !seen[text]) { seen[text] = 1; out.push({ type: type, text: text }); } }
+    // 权威信号优先：全国专科领先 → 三甲等级 → 命中专科 → 评分 → 距离
+    (rec && rec.leader_specialties || []).slice(0, 2).forEach(function (sp) { push('spec', t('hp_national_leader', { sp: sp })); });
     (rec && rec.matched_specialties || []).slice(0, 3).forEach(function (sp) { push('spec', t('hp_strong_in', { sp: sp })); });
-    if (h.rating) push('ok', t('hp_rated', { r: num(h.rating).toFixed(1) }) + (h.review_count ? ' ' + t('hp_reviews_paren', { n: Number(h.review_count).toLocaleString() }) : ''));
+    if (h.rating) push('ok', t('hp_rated', { r: num(h.rating).toFixed(1) }));
     if (distKm != null) push('ok', t('hp_km_you', { km: distKm.toFixed(1) }));
     (rec && rec.reasons || []).forEach(function (r) { if (/speaks your language/i.test(r)) push('ok', t('hp_speaks')); else if (/emergency/i.test(r)) push('ok', t('hp_emergency')); });
-    return out.slice(0, 4);
+    return out.slice(0, 5);
   }
+  function gradeLabel(g) { return (String(g).indexOf('三级甲等') >= 0 || String(g).indexOf('三甲') >= 0) ? t('hp_grade_3a') : esc(g); }
   function starStr(r) { var full = Math.floor(r), half = (r - full) >= 0.5 ? 1 : 0, empty = 5 - full - half; return '★'.repeat(full) + (half ? '⯨' : '') + '☆'.repeat(Math.max(0, empty)); }
   function hospitalCard(h, idx, ranked, maxScore) {
     var name = esc(h.name || h.name_zh || 'Hospital');
@@ -559,10 +602,11 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     var addr = (h.address_zh || h.address) ? '<div class="hospital-sub">📍 ' + esc(h.address_zh || h.address) + '</div>' : '';
     var phone = h.phone ? '<div class="hospital-sub">☎ ' + esc(h.phone) + '</div>' : '';
     var specs = (h.specialties || []).slice(0, 5).map(function (s) { return '<span class="chip static">' + esc(typeof s === 'string' ? s : (s.name || '')) + '</span>'; }).join('');
-    var review = (h.reviews && h.reviews.length) ? '<div class="review-quote">“' + esc(trim(h.reviews[0], 96)) + '”</div>' : '';
+    var review = ''; // 列表不再展示模板化点评；真实点评见医院详情
     var hasLoc = typeof h.lng === 'number' && typeof h.lat === 'number';
     var nav = hasLoc ? '<button class="btn btn-primary btn-sm js-nav" data-lng="' + h.lng + '" data-lat="' + h.lat + '" data-name="' + esc(h.name_zh || h.name) + '">' + t('hp_navigate') + '</button>' : '';
-    var ratingLine = '<div class="rating-line">' + (rating ? '<span class="stars">' + starStr(rating) + '</span><span class="rating-num">' + rating.toFixed(1) + '</span>' : '') + (h.review_count ? '<span class="review-count">' + t('hp_reviews', { n: Number(h.review_count).toLocaleString() }) + '</span>' : '') + (dist != null ? '<span class="review-count">· ' + t('hp_km', { km: dist.toFixed(1) }) + '</span>' : '') + '</div>';
+    var gradeBadge = h.grade ? '<span class="grade-badge">🛡 ' + esc(gradeLabel(h.grade)) + '</span>' : '';
+    var ratingLine = '<div class="rating-line">' + gradeBadge + (rating ? '<span class="stars">' + starStr(rating) + '</span><span class="rating-num">' + rating.toFixed(1) + '</span>' : '') + (dist != null ? '<span class="review-count">· ' + t('hp_km', { km: dist.toFixed(1) }) + '</span>' : '') + '</div>';
     return '<div class="hospital-card ' + (ranked && idx === 0 ? 'top' : '') + '">' + (ranked ? '<div class="rank-badge">' + t('hp_best_match', { n: idx + 1 }) + '</div>' : '') +
       '<div class="hospital-main"><div class="hospital-name">' + name + zh + '</div>' + ratingLine + addr + phone + (specs ? '<div class="chips" style="margin-top:8px;">' + specs + '</div>' : '') + reasons + review + '</div>' +
       '<div class="hospital-side">' + ring + nav + '</div></div>';
@@ -659,7 +703,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     function loadList() {
       list = FALLBACK_HOSPITALS.slice(); fillDropdown();
       if (!target && list[0]) target = { lng: list[0].lng, lat: list[0].lat, name: list[0].name_zh || list[0].name };
-      api('/api/hospitals?limit=20').then(function (d) {
+      api('/api/hospitals?limit=40').then(function (d) {
         var valid = (d && d.hospitals || []).filter(function (h) { return typeof h.lng === 'number' && typeof h.lat === 'number'; });
         if (valid.length) { list = valid; fillDropdown(); if (!target) target = { lng: list[0].lng, lat: list[0].lat, name: list[0].name_zh || list[0].name }; draw(); }
       }).catch(function () {});
@@ -711,13 +755,21 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
         if (mode === 'transit' && result.plans && result.plans.length) {
           var pl = result.plans[0]; distance = pl.distance || 0; time = pl.time || 0;
           (pl.segments || []).forEach(function (seg) {
-            if (seg.transit_mode === 'WALK' && seg.transit) steps.push({ t: '步行 ' + Math.round(seg.transit.distance || 0) + ' 米', d: seg.transit.distance || 0 });
-            else if (seg.transit && seg.transit.lines && seg.transit.lines.length) steps.push({ t: seg.transit.lines[0].name, d: seg.transit.distance || 0 });
-            else if (seg.instruction) steps.push({ t: seg.instruction, d: 0 });
+            if (seg.transit_mode === 'WALK' && seg.transit) steps.push({ walk: true, d: seg.transit.distance || 0, zh: '步行 ' + Math.round(seg.transit.distance || 0) + ' 米' });
+            else if (seg.transit && seg.transit.lines && seg.transit.lines.length) steps.push({ line: seg.transit.lines[0].name, d: seg.transit.distance || 0, zh: '乘坐 ' + seg.transit.lines[0].name });
+            else if (seg.instruction) steps.push({ zh: seg.instruction, d: 0 });
           });
         } else if (result.routes && result.routes.length) {
           var rt = result.routes[0]; distance = rt.distance || 0; time = rt.time || 0;
-          (rt.steps || []).forEach(function (s) { steps.push({ t: s.instruction || s.start_road || '继续前行', d: s.distance || 0 }); });
+          var isWalk = mode !== 'driving';
+          (rt.steps || []).forEach(function (s) {
+            steps.push({
+              walk: isWalk, d: s.distance || 0,
+              ori: s.orientation || '', road: s.road || '',
+              act: s.action || '', ast: s.assistant_action || '',
+              zh: s.instruction || s.start_road || '继续前行'
+            });
+          });
         }
       } catch (e) {}
       lastSummary = { distM: distance, durSec: time, estimated: false }; lastStepsRaw = steps;
@@ -742,7 +794,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
       if (!lastStepsRaw || !lastStepsRaw.length) { box.innerHTML = ''; return; }
       var rows = lastStepsRaw.slice(0, 24).map(function (s, i) {
         var dist = s.d ? (s.d > 1000 ? (s.d / 1000).toFixed(1) + ' km' : Math.round(s.d) + ' m') : '';
-        return '<div class="step-item"><div class="step-pin">' + (i + 1) + '</div><div class="step-body"><div class="step-instruction">' + esc(localizeStep(s.t, curLang)) + '</div>' + (dist ? '<div class="step-dist">' + dist + '</div>' : '') + '</div></div>';
+        return '<div class="step-item"><div class="step-pin">' + (i + 1) + '</div><div class="step-body"><div class="step-instruction">' + esc(buildStepText(s, curLang)) + '</div>' + (dist ? '<div class="step-dist">' + dist + '</div>' : '') + '</div></div>';
       }).join('');
       box.innerHTML = '<h4>' + t('nv_turn_by_turn') + '</h4>' + rows + '<div class="step-item is-endpoint"><div class="step-pin">★</div><div class="step-body"><div class="step-instruction">' + t('nv_arrive', { name: esc(target ? target.name : '') }) + '</div></div></div>';
     }
