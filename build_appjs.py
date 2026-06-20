@@ -155,7 +155,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     hp_no_hosp: 'No hospitals found. Try a broader symptom or department.', hp_waking_t: 'Recommendation service is waking up', hp_waking_d: 'Showing all hospitals meanwhile. Try again in a moment.',
     nv_eyebrow: 'Navigation', nv_title: 'Navigate to care', nv_lede: "See the drawn route and turn-by-turn directions on a live map — or hand off to your phone's maps app in one tap.",
     nv_hospital: 'Hospital', nv_mode: 'Mode', nv_walking: '🚶 Walking', nv_driving: '🚗 Driving', nv_transit: '🚇 Transit', nv_use_loc: '📍 Use my location', nv_locating: '📍 Locating…',
-    nv_map_loading: 'Loading map…', nv_origin_default: '📍 Origin: Beijing city center (default) · tap “Use my location”.', nv_origin_gps: '📍 Origin: your current location ({lng}, {lat})',
+    nv_map_loading: 'Loading map…', nv_origin_default: '📍 Origin: Beijing city center (default) · tap “Use my location”.', nv_origin_gps: '📍 Origin: your current location',
     nv_map_unavail: 'Live map unavailable.', nv_map_no_js: 'AMap JS key not configured.', nv_map_no_backend: 'Backend not configured.', nv_map_hint: 'Use the buttons below to open this place in a maps app.',
     nv_open_in: 'Open in maps:', nv_planning: 'Planning route…', nv_turn_by_turn: '🧭 Turn-by-turn', nv_arrive: 'Arrive at {name}', nv_you: 'You',
     nv_fallback: 'Turn-by-turn needs the AMap security key. Distance/time are straight-line estimates — use the buttons above to navigate in a maps app.',
@@ -225,7 +225,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     hp_no_hosp: '未找到医院。试试更宽泛的症状或科室。', hp_waking_t: '推荐服务正在唤醒', hp_waking_d: '同时先显示全部医院，请稍后重试。',
     nv_eyebrow: '导航', nv_title: '导航就医', nv_lede: '在实时地图上查看画出的路线与转向步骤——或一键交给手机地图 App。',
     nv_hospital: '医院', nv_mode: '出行方式', nv_walking: '🚶 步行', nv_driving: '🚗 驾车', nv_transit: '🚇 公交', nv_use_loc: '📍 用我的位置', nv_locating: '📍 定位中…',
-    nv_map_loading: '地图加载中…', nv_origin_default: '📍 起点：北京市中心（默认）· 点“用我的位置”。', nv_origin_gps: '📍 起点：你的当前位置（{lng}, {lat}）',
+    nv_map_loading: '地图加载中…', nv_origin_default: '📍 起点：北京市中心（默认）· 点“用我的位置”。', nv_origin_gps: '📍 起点：你的当前位置',
     nv_map_unavail: '实时地图不可用。', nv_map_no_js: '未配置高德 JS Key。', nv_map_no_backend: '未配置后端。', nv_map_hint: '用下方按钮在地图 App 中打开。',
     nv_open_in: '用地图App打开：', nv_planning: '规划路线中…', nv_turn_by_turn: '🧭 转向步骤', nv_arrive: '到达 {name}', nv_you: '我',
     nv_fallback: '页面内转向步骤需要高德安全密钥。当前距离/时间为直线估算——请用上方按钮在地图 App 中导航。',
@@ -246,15 +246,18 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     loc_prefix: '定位：{msg}', ui_translating: '正在翻译界面…', ui_ready: '语言已就绪', please_login: '请先登录'
   };
 
+  // 其余 10 种语言的预生成字典（构建期由 gen_i18n.py 写入 i18n_all.json 后注入；EN/ZH 见上 STR_EN/STR_ZH）
+  var I18N_EXTRA = __I18N_EXTRA__;
+
   var curLang = '';
   try { curLang = localStorage.getItem(LANG_KEY) || ''; } catch (e) {}
   var DICT = {};
 
-  function buildDict(lang, extra) {
+  function buildDict(lang) {
     var d = {}, k;
     for (k in STR_EN) d[k] = STR_EN[k];
     if (lang === 'zh') { for (k in STR_ZH) d[k] = STR_ZH[k]; }
-    if (extra) { for (k in extra) if (extra[k]) d[k] = extra[k]; }
+    else if (lang !== 'en' && I18N_EXTRA[lang]) { var e = I18N_EXTRA[lang]; for (k in e) if (e[k]) d[k] = e[k]; }
     return d;
   }
   function t(key, vars) {
@@ -274,77 +277,66 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
 
   function setLang(lang) {
     curLang = lang; try { localStorage.setItem(LANG_KEY, lang); } catch (e) {}
-    if (lang === 'en' || lang === 'zh') { DICT = buildDict(lang); applyI18n(); return; }
-    var cached = null; try { cached = JSON.parse(localStorage.getItem(I18N_PREFIX + lang) || 'null'); } catch (e) {}
-    if (cached) { DICT = buildDict(lang, cached); applyI18n(); }
-    else { DICT = buildDict('en'); applyI18n(); translateUI(lang); }
+    DICT = buildDict(lang); applyI18n();   // 全部 12 种语言已预生成内嵌 → 即时切换，无需联网
   }
 
-  // Lazy-translate the whole UI via the platform's own engine, then cache.
-  // Pass 1: batched (fast). Pass 2: per-string retry for any keys still missing
-  // (1 string/call can't misalign), so the visible UI fully localizes. EN fallback otherwise.
-  function translateUI(lang) {
-    var allKeys = Object.keys(STR_EN), extra = {};
-    try { var c0 = JSON.parse(localStorage.getItem(I18N_PREFIX + lang) || 'null'); if (c0) extra = c0; } catch (e) {}
-    toast(t('ui_translating'), '');
-    function pass(keys, per, conc, cb) {
-      var groups = []; for (var i = 0; i < keys.length; i += per) groups.push(keys.slice(i, i + per));
-      if (!groups.length) { cb(); return; }
-      var gi = 0, active = 0, fin = 0;
-      function pump() {
-        while (active < conc && gi < groups.length) {
-          (function (ks) {
-            active++;
-            var texts = ks.map(function (k) { return STR_EN[k]; });
-            api('/api/translate', { method: 'POST', body: { text: texts.join('\n'), source: 'en', target: lang }, timeout: 25000 })
-              .then(function (d) {
-                var lines = String(d.translated || '').split('\n');
-                if (lines.length === texts.length) ks.forEach(function (k, j) {
-                  var src = STR_EN[k], out = lines[j], ph = src.match(/\{\w+\}/g);
-                  if (ph && ph.some(function (p) { return out.indexOf(p) === -1; })) return; // keep EN if a {placeholder} was lost
-                  extra[k] = out;
-                });
-              }).catch(function () {})
-              .then(function () { active--; fin++; if (curLang === lang) { DICT = buildDict(lang, extra); applyStatic(); } if (fin === groups.length) cb(); else pump(); });
-          })(groups[gi++]);
-        }
-      }
-      pump();
+  // ---- 导航转向步骤：离线模板翻译（解析高德中文指令 → 目标语言；保留路名中文 + 数字）----
+  // 关键：批量调用引擎翻译会把多条短指令合并成一句话且慢；这里纯前端即时完成。
+  var NAV_LEX = {
+    en: { walk: 'Walk', drive: 'Drive', m: ' m', km: ' km', along: 'along ', arrive: 'arrive at the destination',
+      dir: { '东': 'east', '南': 'south', '西': 'west', '北': 'north', '东北': 'northeast', '东南': 'southeast', '西北': 'northwest', '西南': 'southwest' },
+      act: [['向左前方行走', 'bear left'], ['向右前方行走', 'bear right'], ['到达目的地', 'arrive at the destination'], ['左转', 'turn left'], ['右转', 'turn right'], ['直行', 'go straight'], ['掉头', 'make a U-turn'], ['靠左', 'keep left'], ['靠右', 'keep right'], ['进入', 'enter '], ['过', 'pass '], ['后', ' then ']] },
+    ja: { walk: '歩く', drive: '運転', m: 'm', km: 'km', along: '沿い ', arrive: '目的地に到着',
+      dir: { '东': '東', '南': '南', '西': '西', '北': '北', '东北': '北東', '东南': '南東', '西北': '北西', '西南': '南西' },
+      act: [['向左前方行走', '左前方へ'], ['向右前方行走', '右前方へ'], ['到达目的地', '目的地に到着'], ['左转', '左折'], ['右转', '右折'], ['直行', '直進'], ['掉头', 'Uターン'], ['靠左', '左寄り'], ['靠右', '右寄り'], ['进入', '進入 '], ['过', '通過 '], ['后', ' その後 ']] },
+    ko: { walk: '도보', drive: '운전', m: 'm', km: 'km', along: '를 따라 ', arrive: '목적지 도착',
+      dir: { '东': '동', '南': '남', '西': '서', '北': '북', '东北': '북동', '东南': '남동', '西北': '북서', '西南': '남서' },
+      act: [['向左前方行走', '좌측 전방'], ['向右前方行走', '우측 전방'], ['到达目的地', '목적지 도착'], ['左转', '좌회전'], ['右转', '우회전'], ['直行', '직진'], ['掉头', '유턴'], ['靠左', '좌측'], ['靠右', '우측'], ['进入', '진입 '], ['过', '통과 '], ['后', ' 그 다음 ']] },
+    fr: { walk: 'Marcher', drive: 'Conduire', m: ' m', km: ' km', along: 'le long de ', arrive: 'arriver à destination',
+      dir: { '东': 'est', '南': 'sud', '西': 'ouest', '北': 'nord', '东北': 'nord-est', '东南': 'sud-est', '西北': 'nord-ouest', '西南': 'sud-ouest' },
+      act: [['向左前方行走', 'légèrement à gauche'], ['向右前方行走', 'légèrement à droite'], ['到达目的地', 'arriver à destination'], ['左转', 'tourner à gauche'], ['右转', 'tourner à droite'], ['直行', 'tout droit'], ['掉头', 'faire demi-tour'], ['靠左', 'rester à gauche'], ['靠右', 'rester à droite'], ['进入', 'entrer '], ['过', 'passer '], ['后', ' puis ']] },
+    de: { walk: 'Gehen', drive: 'Fahren', m: ' m', km: ' km', along: 'entlang ', arrive: 'Ziel erreichen',
+      dir: { '东': 'Osten', '南': 'Süden', '西': 'Westen', '北': 'Norden', '东北': 'Nordosten', '东南': 'Südosten', '西北': 'Nordwesten', '西南': 'Südwesten' },
+      act: [['向左前方行走', 'leicht links'], ['向右前方行走', 'leicht rechts'], ['到达目的地', 'Ziel erreichen'], ['左转', 'links abbiegen'], ['右转', 'rechts abbiegen'], ['直行', 'geradeaus'], ['掉头', 'wenden'], ['靠左', 'links halten'], ['靠右', 'rechts halten'], ['进入', 'einbiegen '], ['过', 'vorbei '], ['后', ' dann ']] },
+    es: { walk: 'Caminar', drive: 'Conducir', m: ' m', km: ' km', along: 'por ', arrive: 'llegar al destino',
+      dir: { '东': 'este', '南': 'sur', '西': 'oeste', '北': 'norte', '东北': 'noreste', '东南': 'sureste', '西北': 'noroeste', '西南': 'suroeste' },
+      act: [['向左前方行走', 'ligeramente a la izquierda'], ['向右前方行走', 'ligeramente a la derecha'], ['到达目的地', 'llegar al destino'], ['左转', 'girar a la izquierda'], ['右转', 'girar a la derecha'], ['直行', 'seguir recto'], ['掉头', 'dar la vuelta'], ['靠左', 'mantenerse a la izquierda'], ['靠右', 'mantenerse a la derecha'], ['进入', 'entrar '], ['过', 'pasar '], ['后', ' luego ']] },
+    it: { walk: 'Camminare', drive: 'Guidare', m: ' m', km: ' km', along: 'lungo ', arrive: 'arrivare a destinazione',
+      dir: { '东': 'est', '南': 'sud', '西': 'ovest', '北': 'nord', '东北': 'nord-est', '东南': 'sud-est', '西北': 'nord-ovest', '西南': 'sud-ovest' },
+      act: [['向左前方行走', 'leggermente a sinistra'], ['向右前方行走', 'leggermente a destra'], ['到达目的地', 'arrivare a destinazione'], ['左转', 'girare a sinistra'], ['右转', 'girare a destra'], ['直行', 'dritto'], ['掉头', 'inversione a U'], ['靠左', 'tenere la sinistra'], ['靠右', 'tenere la destra'], ['进入', 'entrare '], ['过', 'passare '], ['后', ' poi ']] },
+    ru: { walk: 'Идти', drive: 'Ехать', m: ' м', km: ' км', along: 'по ', arrive: 'прибыть в пункт назначения',
+      dir: { '东': 'восток', '南': 'юг', '西': 'запад', '北': 'север', '东北': 'северо-восток', '东南': 'юго-восток', '西北': 'северо-запад', '西南': 'юго-запад' },
+      act: [['向左前方行走', 'левее'], ['向右前方行走', 'правее'], ['到达目的地', 'прибыть в пункт назначения'], ['左转', 'повернуть налево'], ['右转', 'повернуть направо'], ['直行', 'прямо'], ['掉头', 'развернуться'], ['靠左', 'держаться левее'], ['靠右', 'держаться правее'], ['进入', 'въехать '], ['过', 'проехать '], ['后', ' затем ']] },
+    pt: { walk: 'Caminhar', drive: 'Conduzir', m: ' m', km: ' km', along: 'ao longo de ', arrive: 'chegar ao destino',
+      dir: { '东': 'leste', '南': 'sul', '西': 'oeste', '北': 'norte', '东北': 'nordeste', '东南': 'sudeste', '西北': 'noroeste', '西南': 'sudoeste' },
+      act: [['向左前方行走', 'ligeiramente à esquerda'], ['向右前方行走', 'ligeiramente à direita'], ['到达目的地', 'chegar ao destino'], ['左转', 'virar à esquerda'], ['右转', 'virar à direita'], ['直行', 'seguir em frente'], ['掉头', 'fazer retorno'], ['靠左', 'manter-se à esquerda'], ['靠右', 'manter-se à direita'], ['进入', 'entrar '], ['过', 'passar '], ['后', ' depois ']] },
+    ar: { walk: 'سِر', drive: 'قُد', m: ' م', km: ' كم', along: 'على طول ', arrive: 'الوصول إلى الوجهة',
+      dir: { '东': 'شرقاً', '南': 'جنوباً', '西': 'غرباً', '北': 'شمالاً', '东北': 'شمال شرق', '东南': 'جنوب شرق', '西北': 'شمال غرب', '西南': 'جنوب غرب' },
+      act: [['向左前方行走', 'يساراً قليلاً'], ['向右前方行走', 'يميناً قليلاً'], ['到达目的地', 'الوصول إلى الوجهة'], ['左转', 'انعطف يساراً'], ['右转', 'انعطف يميناً'], ['直行', 'استمر مستقيماً'], ['掉头', 'استدر'], ['靠左', 'الزم اليسار'], ['靠右', 'الزم اليمين'], ['进入', 'ادخل '], ['过', 'تجاوز '], ['后', ' ثم ']] },
+    hi: { walk: 'चलें', drive: 'ड्राइव करें', m: ' मी', km: ' किमी', along: 'के साथ ', arrive: 'गंतव्य पर पहुँचें',
+      dir: { '东': 'पूर्व', '南': 'दक्षिण', '西': 'पश्चिम', '北': 'उत्तर', '东北': 'उत्तर-पूर्व', '东南': 'दक्षिण-पूर्व', '西北': 'उत्तर-पश्चिम', '西南': 'दक्षिण-पश्चिम' },
+      act: [['向左前方行走', 'थोड़ा बाएँ'], ['向右前方行走', 'थोड़ा दाएँ'], ['到达目的地', 'गंतव्य पर पहुँचें'], ['左转', 'बाएँ मुड़ें'], ['右转', 'दाएँ मुड़ें'], ['直行', 'सीधे चलें'], ['掉头', 'यू-टर्न लें'], ['靠左', 'बाएँ रहें'], ['靠右', 'दाएँ रहें'], ['进入', 'प्रवेश करें '], ['过', 'पार करें '], ['后', ' फिर ']] }
+  };
+  function localizeStep(zh, lang) {
+    if (!zh || lang === 'zh' || !NAV_LEX[lang]) return zh;
+    var L = NAV_LEX[lang];
+    var acts = L.act.slice().sort(function (a, b) { return b[0].length - a[0].length; });
+    var localizeAct = function (a) { if (!a) return ''; acts.forEach(function (p) { a = a.split(p[0]).join(p[1]); }); return a.replace(/\s+/g, ' ').trim(); };
+    var m = zh.match(/^(?:沿(.+?))?向([东南西北]{1,2})(步行|行驶)([\d.]+)(米|公里)(.*)$/);
+    if (m) {
+      var road = m[1], dir = m[2], verb = m[3], dist = m[4], unit = m[5], act = m[6];
+      var s = (verb === '行驶' ? L.drive : L.walk) + ' ' + dist + (unit === '公里' ? L.km : L.m) + ' ' + (L.dir[dir] || dir);
+      if (road) s += ' ' + L.along + road;
+      var a = localizeAct(act);
+      if (a) s += ', ' + a;
+      return s;
     }
-    pass(allKeys, 24, 3, function () {
-      var missing = allKeys.filter(function (k) { return extra[k] == null; });
-      var finish = function () {
-        try { localStorage.setItem(I18N_PREFIX + lang, JSON.stringify(extra)); } catch (e) {}
-        if (curLang === lang) { DICT = buildDict(lang, extra); applyI18n(); toast(t('ui_ready'), 'ok'); }
-      };
-      if (missing.length) pass(missing, 1, 3, finish); else finish();
-    });
-  }
-
-  // Translate AMap Chinese route steps to the active language, cached per instruction.
-  // One instruction per call — batching fails here because the model merges the
-  // short directions into a single flowing sentence (3 lines in → 1 line out).
-  function translateSteps(steps, cb) {
-    if (curLang === 'zh' || !steps || !steps.length) { cb(steps); return; }
-    var ck = STEP_PREFIX + curLang, cache = {};
-    try { cache = JSON.parse(localStorage.getItem(ck) || '{}'); } catch (e) {}
-    var localized = function () { return steps.map(function (s) { return { t: cache[s.t] || s.t, d: s.d }; }); };
-    var need = []; steps.forEach(function (s) { if (cache[s.t] == null && need.indexOf(s.t) === -1) need.push(s.t); });
-    cb(localized());                       // render immediately (cached / raw fallback)
-    if (!need.length) return;
-    var i = 0, active = 0, fin = 0, CONC = 3;
-    function pump() {
-      while (active < CONC && i < need.length) {
-        (function (txt) {
-          active++;
-          api('/api/translate', { method: 'POST', body: { text: txt, source: 'zh', target: curLang }, timeout: 20000 })
-            .then(function (d) { var out = String(d.translated || '').split('\n')[0].trim(); if (out) cache[txt] = out; })
-            .catch(function () {})
-            .then(function () { active--; fin++; if (fin === need.length) { try { localStorage.setItem(ck, JSON.stringify(cache)); } catch (e) {} cb(localized()); } else pump(); });
-        })(need[i++]);
-      }
-    }
-    pump();
+    // 兜底：逐 token 替换（保留路名/线路名中文）
+    var out = zh;
+    acts.forEach(function (p) { out = out.split(p[0]).join(p[1]); });
+    Object.keys(L.dir).sort(function (a, b) { return b.length - a.length; }).forEach(function (d) { out = out.split(d).join(' ' + L.dir[d] + ' '); });
+    out = out.split('步行').join(L.walk + ' ').split('行驶').join(L.drive + ' ').split('公里').join(L.km).split('米').join(L.m).split('沿').join(L.along).split('向').join('');
+    return out.replace(/\s+/g, ' ').trim();
   }
 
   // language picker (first visit) + switcher
@@ -530,7 +522,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
   }
   function renderStats(d, animate) {
     _lastStats = d; var box = byId('home-stats'); if (!box) return;
-    var cards = [{ v: 12, k: 'st_langs' }, { v: d.medical_terms || 349, k: 'st_terms' }, { v: d.hospitals || 6, k: 'st_hosp' }, { v: d.triage_rules || 55, k: 'st_rules' }, { v: d.translations || 0, k: 'st_trans' }];
+    var cards = [{ v: 12, k: 'st_langs' }, { v: d.medical_terms || 2428, k: 'st_terms' }, { v: d.hospitals || 6, k: 'st_hosp' }, { v: d.triage_rules || 55, k: 'st_rules' }, { v: d.translations || 0, k: 'st_trans' }];
     box.innerHTML = cards.map(function (c) { return '<div class="stat"><div class="stat-num" data-to="' + c.v + '">' + (animate === false ? c.v.toLocaleString() : '0') + '</div><div class="stat-label">' + t(c.k) + '</div></div>'; }).join('');
     if (animate === false) return;
     var run = function () { qsa('.stat-num', box).forEach(function (el) { animateCount(el, parseInt(el.getAttribute('data-to'), 10) || 0); }); };
@@ -652,7 +644,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
 
     function setOriginText() {
       var el = byId('nav-origin'); if (!el) return;
-      el.textContent = originIsGps ? t('nv_origin_gps', { lng: origin.lng.toFixed(4), lat: origin.lat.toFixed(4) }) : t('nv_origin_default');
+      el.textContent = originIsGps ? t('nv_origin_gps') : t('nv_origin_default');
     }
     function fillDropdown() {
       var sel = byId('nav-hospital'); if (!sel) return; sel.innerHTML = '';
@@ -696,8 +688,8 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
       if (m.querySelector('.map-empty')) m.innerHTML = '';
       if (!map) { map = new AMap.Map(m, { zoom: 12, center: [origin.lng, origin.lat], viewMode: '2D', mapStyle: 'amap://styles/whitesmoke' }); try { map.addControl(new AMap.Scale()); map.addControl(new AMap.ToolBar({ position: 'RB' })); } catch (e) {} }
       map.clearMap();
-      new AMap.Marker({ position: [origin.lng, origin.lat], map: map, content: markerPin('#2F7D6E', t('nv_you')), offset: new AMap.Pixel(0, 0) });
-      if (target) { new AMap.Marker({ position: [target.lng, target.lat], map: map, content: markerPin('#D97757', trim(target.name, 14)), offset: new AMap.Pixel(0, 0) }); plan(); try { map.setFitView(); } catch (e) {} }
+      new AMap.Marker({ position: [origin.lng, origin.lat], map: map, content: markerPin('#0E9488', t('nv_you')), offset: new AMap.Pixel(0, 0) });
+      if (target) { new AMap.Marker({ position: [target.lng, target.lat], map: map, content: markerPin('#1A78C2', trim(target.name, 14)), offset: new AMap.Pixel(0, 0) }); plan(); try { map.setFitView(); } catch (e) {} }
       else map.setZoomAndCenter(12, [origin.lng, origin.lat]);
       setOriginText();
     }
@@ -746,14 +738,13 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
         '<div class="nav-stat"><div class="k">' + t('nv_mode_label') + '</div><div class="v" style="font-size:18px;">' + modeTxt + '</div></div>';
     }
     function renderStepsLocalized() {
-      var box = byId('nav-route'); if (!box || !lastStepsRaw || !lastStepsRaw.length) { if (box && lastStepsRaw && !lastStepsRaw.length) box.innerHTML = ''; return; }
-      translateSteps(lastStepsRaw, function (steps) {
-        var rows = steps.slice(0, 24).map(function (s, i) {
-          var dist = s.d ? (s.d > 1000 ? (s.d / 1000).toFixed(1) + ' km' : Math.round(s.d) + ' m') : '';
-          return '<div class="step-item"><div class="step-pin">' + (i + 1) + '</div><div class="step-body"><div class="step-instruction">' + esc(s.t) + '</div>' + (dist ? '<div class="step-dist">' + dist + '</div>' : '') + '</div></div>';
-        }).join('');
-        box.innerHTML = '<h4>' + t('nv_turn_by_turn') + '</h4>' + rows + '<div class="step-item is-endpoint"><div class="step-pin">★</div><div class="step-body"><div class="step-instruction">' + t('nv_arrive', { name: esc(target ? target.name : '') }) + '</div></div></div>';
-      });
+      var box = byId('nav-route'); if (!box) return;
+      if (!lastStepsRaw || !lastStepsRaw.length) { box.innerHTML = ''; return; }
+      var rows = lastStepsRaw.slice(0, 24).map(function (s, i) {
+        var dist = s.d ? (s.d > 1000 ? (s.d / 1000).toFixed(1) + ' km' : Math.round(s.d) + ' m') : '';
+        return '<div class="step-item"><div class="step-pin">' + (i + 1) + '</div><div class="step-body"><div class="step-instruction">' + esc(localizeStep(s.t, curLang)) + '</div>' + (dist ? '<div class="step-dist">' + dist + '</div>' : '') + '</div></div>';
+      }).join('');
+      box.innerHTML = '<h4>' + t('nv_turn_by_turn') + '</h4>' + rows + '<div class="step-item is-endpoint"><div class="step-pin">★</div><div class="step-body"><div class="step-instruction">' + t('nv_arrive', { name: esc(target ? target.name : '') }) + '</div></div></div>';
     }
     function renderHandoff() {
       var box = byId('nav-handoff'); if (!box || !target) { if (box) box.innerHTML = ''; return; }
@@ -892,9 +883,30 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
 '''
 
 # ---------------------------------------------------------------------------
+# 注入预生成的多语言字典（其余 10 种语言；EN/ZH 已手写在 STR_EN/STR_ZH）
+# ---------------------------------------------------------------------------
+import json
+import re as _re
+_root = os.path.dirname(os.path.abspath(__file__))
+_i18n_path = os.path.join(_root, 'i18n_all.json')
+_extra = {}
+if os.path.exists(_i18n_path):
+    _all = json.load(open(_i18n_path, encoding='utf-8'))
+    for _lang, _d in _all.items():
+        if _lang in ('en', 'zh'):
+            continue  # EN/ZH 来自 JS 中手写的 STR_EN/STR_ZH
+        # 去掉导航起点里残留的经纬度括注（用户要求不显示坐标）
+        if 'nv_origin_gps' in _d:
+            _d['nv_origin_gps'] = _re.sub(r'\s*[（(][^（）()]*\{lng\}[^（）()]*[）)]', '', _d['nv_origin_gps'])
+        _extra[_lang] = _d
+    print('embedded i18n: %d extra languages' % len(_extra))
+else:
+    print('⚠️  i18n_all.json not found — only EN/ZH available. Run: python3 gen_i18n.py')
+JS = JS.replace('__I18N_EXTRA__', json.dumps(_extra, ensure_ascii=False))
+
+# ---------------------------------------------------------------------------
 # 写出到两份前端目录：transmed_web/（后端服务）与 docs/（GitHub Pages）
 # ---------------------------------------------------------------------------
-_root = os.path.dirname(os.path.abspath(__file__))
 _targets = [
     os.path.join(_root, 'transmed_web', 'app.js'),
     os.path.join(_root, 'docs', 'app.js'),

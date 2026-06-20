@@ -1,47 +1,47 @@
 /* ============================================================================
-   TransMed — Light "Claude cream" theme + Apple-style motion
-   Warm off-white canvas · Claude coral accent · calm teal medical secondary
+   TransMed — Light "clinical cool" theme + Apple-style motion
+   Cool off-white canvas · medical blue primary · teal secondary
    System serif display (New York / Georgia) + system sans body
    ============================================================================ */
 
 :root {
   /* —— Surfaces —— */
-  --bg:          #FAF9F5;   /* page canvas (Claude warm off-white) */
-  --bg-warm:     #F2EFE6;   /* alternating warm band */
-  --bg-warm-2:   #ECE7DA;   /* deeper warm panel */
+  --bg:          #F3F6FB;   /* page canvas (cool clinical off-white) */
+  --bg-warm:     #E8EEF6;   /* alternating cool band */
+  --bg-warm-2:   #DEE7F1;   /* deeper cool panel */
   --surface:     #FFFFFF;   /* card */
-  --surface-2:   #FBFAF6;   /* subtle card */
-  --surface-inset:#F6F4EC;  /* inputs / inset wells */
+  --surface-2:   #F8FBFE;   /* subtle card */
+  --surface-inset:#EEF3F9;  /* inputs / inset wells */
 
   /* —— Ink —— */
-  --ink:        #1F1D18;    /* near-black warm */
-  --ink-soft:   #423D34;
-  --muted:      #7A7466;
-  --faint:      #A39C8C;
+  --ink:        #0F1F33;    /* deep cool slate */
+  --ink-soft:   #314257;
+  --muted:      #647689;
+  --faint:      #98A6B6;
 
   /* —— Lines —— */
-  --border:        #E7E1D3;
-  --border-strong: #D8D0BE;
+  --border:        #DEE7F0;
+  --border-strong: #C6D3E1;
 
-  /* —— Claude coral accent —— */
-  --accent:       #D97757;
-  --accent-deep:  #C15F3C;
-  --accent-soft:  #E59A82;
-  --accent-tint:  rgba(217, 119, 87, 0.10);
-  --accent-tint-2:rgba(217, 119, 87, 0.16);
+  /* —— Medical blue primary —— */
+  --accent:       #1A78C2;
+  --accent-deep:  #135E9C;
+  --accent-soft:  #6BA8DA;
+  --accent-tint:  rgba(26, 120, 194, 0.10);
+  --accent-tint-2:rgba(26, 120, 194, 0.16);
 
-  /* —— Calm teal "medical trust" secondary —— */
-  --trust:        #2F7D6E;
-  --trust-soft:   #4FA593;
-  --trust-tint:   rgba(47, 125, 110, 0.10);
+  /* —— Teal "medical trust" secondary —— */
+  --trust:        #0E9488;
+  --trust-soft:   #45B8AD;
+  --trust-tint:   rgba(14, 148, 136, 0.10);
 
   /* —— Risk / status —— */
-  --risk-low:   #2F8F5B;
-  --risk-med:   #C28A12;
-  --risk-high:  #D9772C;
-  --risk-crit:  #C0392B;
-  --danger:     #C0392B;
-  --danger-tint:rgba(192, 57, 43, 0.10);
+  --risk-low:   #109A6E;
+  --risk-med:   #C2860D;
+  --risk-high:  #E0791C;
+  --risk-crit:  #D43A3A;
+  --danger:     #D43A3A;
+  --danger-tint:rgba(212, 58, 58, 0.10);
 
   /* —— Radii —— */
   --r-sm: 10px;
@@ -50,11 +50,11 @@
   --r-xl: 30px;
   --r-pill: 999px;
 
-  /* —— Soft warm shadows —— */
-  --shadow-sm: 0 1px 2px rgba(58, 48, 28, 0.05), 0 1px 3px rgba(58, 48, 28, 0.05);
-  --shadow:    0 6px 20px rgba(58, 48, 28, 0.07), 0 2px 6px rgba(58, 48, 28, 0.05);
-  --shadow-md: 0 14px 40px rgba(58, 48, 28, 0.10), 0 4px 12px rgba(58, 48, 28, 0.06);
-  --shadow-lg: 0 30px 70px rgba(58, 48, 28, 0.16);
+  /* —— Soft cool shadows —— */
+  --shadow-sm: 0 1px 2px rgba(15, 40, 80, 0.06), 0 1px 3px rgba(15, 40, 80, 0.05);
+  --shadow:    0 6px 20px rgba(15, 40, 80, 0.08), 0 2px 6px rgba(15, 40, 80, 0.05);
+  --shadow-md: 0 14px 40px rgba(15, 40, 80, 0.12), 0 4px 12px rgba(15, 40, 80, 0.07);
+  --shadow-lg: 0 30px 70px rgba(15, 40, 80, 0.18);
 
   /* —— Type —— */
   --font-serif: ui-serif, "New York", "Iowan Old Style", "Apple Garamond", Georgia, "Songti SC", "Times New Roman", serif;
@@ -91,8 +91,8 @@ body::before {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(1100px 700px at 88% -8%, rgba(217, 119, 87, 0.10), transparent 60%),
-    radial-gradient(900px 600px at -6% 4%, rgba(47, 125, 110, 0.07), transparent 55%),
+    radial-gradient(1100px 700px at 88% -8%, rgba(26, 120, 194, 0.10), transparent 60%),
+    radial-gradient(900px 600px at -6% 4%, rgba(14, 148, 136, 0.08), transparent 55%),
     var(--bg);
   pointer-events: none;
 }
@@ -153,15 +153,14 @@ label {
 }
 
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand .logo {
-  width: 38px; height: 38px;
-  border-radius: 11px;
-  background: linear-gradient(145deg, var(--accent) 0%, var(--accent-deep) 100%);
-  color: #fff;
-  display: grid; place-items: center;
-  font-weight: 700; font-size: 14px; letter-spacing: 0.02em;
-  box-shadow: 0 4px 12px rgba(217, 119, 87, 0.35), inset 0 1px 0 rgba(255,255,255,0.25);
-  flex-shrink: 0;
+.brand .logo { width: 38px; height: 38px; display: block; flex-shrink: 0; }
+.brand .logo svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 4px 10px rgba(26, 120, 194, 0.28)); }
+.avatar {
+  width: 54px; height: 54px; border-radius: 16px;
+  display: grid; place-items: center; color: #fff;
+  font-weight: 700; font-size: 20px; flex-shrink: 0;
+  background: linear-gradient(145deg, var(--accent) 0%, var(--trust) 100%);
+  box-shadow: 0 6px 16px rgba(26, 120, 194, 0.28);
 }
 .brand h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .brand .tagline { font-size: 11.5px; color: var(--muted); line-height: 1.25; }
@@ -215,9 +214,9 @@ label {
   background: linear-gradient(180deg, var(--accent) 0%, var(--accent-deep) 100%);
   border-color: var(--accent-deep);
   color: #fff;
-  box-shadow: 0 6px 18px rgba(217, 119, 87, 0.30);
+  box-shadow: 0 6px 18px rgba(26, 120, 194, 0.30);
 }
-.btn-primary:hover { box-shadow: 0 10px 26px rgba(217, 119, 87, 0.40); border-color: var(--accent-deep); }
+.btn-primary:hover { box-shadow: 0 10px 26px rgba(26, 120, 194, 0.40); border-color: var(--accent-deep); }
 
 .btn-dark { background: var(--ink); border-color: var(--ink); color: #fff; }
 .btn-dark:hover { background: #000; border-color: #000; }
@@ -277,9 +276,9 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 30px 24px 60px; }
   filter: blur(36px); opacity: 0.55;
   animation: float 16s ease-in-out infinite;
 }
-.hero-blob.b1 { width: 380px; height: 380px; top: -120px; right: -60px; background: radial-gradient(circle, rgba(217,119,87,0.42), transparent 70%); }
-.hero-blob.b2 { width: 320px; height: 320px; bottom: -130px; left: -40px; background: radial-gradient(circle, rgba(47,125,110,0.30), transparent 70%); animation-delay: -6s; }
-.hero-blob.b3 { width: 240px; height: 240px; top: 40%; left: 55%; background: radial-gradient(circle, rgba(229,154,130,0.30), transparent 70%); animation-delay: -3s; }
+.hero-blob.b1 { width: 380px; height: 380px; top: -120px; right: -60px; background: radial-gradient(circle, rgba(26,120,194,0.40), transparent 70%); }
+.hero-blob.b2 { width: 320px; height: 320px; bottom: -130px; left: -40px; background: radial-gradient(circle, rgba(14,148,136,0.32), transparent 70%); animation-delay: -6s; }
+.hero-blob.b3 { width: 240px; height: 240px; top: 40%; left: 55%; background: radial-gradient(circle, rgba(107,168,218,0.32), transparent 70%); animation-delay: -3s; }
 @keyframes float {
   0%, 100% { transform: translate(0,0) scale(1); }
   33%  { transform: translate(18px, -22px) scale(1.06); }
@@ -389,7 +388,7 @@ input:focus, textarea:focus, select:focus {
 }
 select {
   appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 36px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237A7466' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23647689' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
   background-repeat: no-repeat; background-position: right 12px center;
 }
 
@@ -426,7 +425,7 @@ select {
 
 .confidence { margin-top: 16px; padding: 16px 18px; background: var(--surface-inset); border: 1px solid var(--border); border-radius: var(--r-sm); }
 .engine-label { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; border: 1px solid var(--border); }
-.engine-label.online  { background: var(--trust-tint); color: var(--trust); border-color: rgba(47,125,110,0.3); }
+.engine-label.online  { background: var(--trust-tint); color: var(--trust); border-color: rgba(14,148,136,0.3); }
 .engine-label.offline { background: rgba(194,138,18,0.12); color: #9a6c0d; border-color: rgba(194,138,18,0.3); }
 .confidence-label { font-size: 13.5px; color: var(--muted); margin: 10px 0; }
 .confidence-label b { color: var(--ink); font-weight: 700; }
@@ -446,7 +445,7 @@ select {
 }
 .chip:hover { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-deep); transform: translateY(-1px); }
 .chip.static { cursor: default; }
-.chip.static:hover { transform: none; background: var(--trust-tint); border-color: rgba(47,125,110,0.3); color: var(--trust); }
+.chip.static:hover { transform: none; background: var(--trust-tint); border-color: rgba(14,148,136,0.3); color: var(--trust); }
 
 /* ============================================================ Finder / Triage / Hospitals */
 .finder-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px; box-shadow: var(--shadow); }
@@ -463,7 +462,7 @@ select {
 
 .triage-banner {
   margin-top: 18px; padding: 18px 20px;
-  background: var(--trust-tint); border: 1px solid rgba(47,125,110,0.25);
+  background: var(--trust-tint); border: 1px solid rgba(14,148,136,0.25);
   border-left: 4px solid var(--trust); border-radius: var(--r);
   animation: viewIn 0.4s var(--ease) both;
 }

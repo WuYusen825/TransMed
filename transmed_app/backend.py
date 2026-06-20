@@ -45,8 +45,12 @@ from .auth import (hash_password, verify_password, create_jwt,
 from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
                    MEDICATIONS,
                    SYMPTOM_TO_SPECIALTIES, SPECIALTY_ALIASES, HOSPITAL_STRENGTH)
+from .corpus_medical import MEDICAL_CORPUS as _MEDICAL_CORPUS
 from . import reviews as _reviews
 from . import amap as _amap
+
+# 真实可检索的医学术语总量 = 基础词典(MEDICAL_TERMS) + ICD-10 专业语料(MEDICAL_CORPUS)
+TOTAL_MEDICAL_TERMS = len(MEDICAL_TERMS) + len(_MEDICAL_CORPUS)
 
 # ------------------------------------------------------------------ initialise DB
 models.Base.metadata.create_all(bind=engine)
@@ -266,7 +270,7 @@ def _hospital_to_out(h: dict) -> HospitalOut:
 @app.get("/health", response_model=HealthOut)
 def health():
     return HealthOut(hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-                     triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS))
+                     triage_rules=len(TRIAGE_RULES), medical_terms=TOTAL_MEDICAL_TERMS)
 
 
 # -------------------------------------------------------------- translate
@@ -769,6 +773,47 @@ class RecommendationIn(BaseModel):
     limit: int = 10
 
 
+# 专科 → 高德 POI 搜索关键词（中文），用于"按需"检索对症医院
+SPECIALTY_TO_AMAP_KEYWORD: dict[str, str] = {
+    "Cardiology": "心血管", "Cardiovascular Surgery": "心血管", "Neurology": "神经",
+    "Neurosurgery": "神经外科", "Oncology": "肿瘤", "Surgical Oncology": "肿瘤",
+    "Pediatrics": "儿童", "Pediatric Surgery": "儿童", "Obstetrics & Gynecology": "妇产",
+    "Gynecology": "妇产", "Ophthalmology": "眼科", "ENT": "耳鼻喉", "Orthopedics": "骨科",
+    "Sports Medicine": "骨科", "Dermatology": "皮肤", "Dental": "口腔", "Oral Surgery": "口腔",
+    "Emergency": "急诊", "Respiratory": "呼吸", "Pulmonary / Respiratory": "呼吸",
+    "Gastroenterology": "消化", "Endocrinology": "内分泌", "Urology": "泌尿",
+    "Mental Health / Psychiatry": "精神", "Rheumatology": "风湿免疫", "Hematology": "血液",
+    "Nephrology": "肾内", "Geriatrics": "老年", "Infectious Diseases": "感染",
+    "Traditional Chinese Medicine": "中医",
+}
+
+
+def _fetch_candidate_hospitals(specialty_scores: dict, city: str, limit: int) -> dict:
+    """按需检索：用症状对应的 Top 专科中文关键词搜对症医院，并与综合医院结果合并去重。
+    这样候选集本身就贴合需求，而非千篇一律的"医院"。"""
+    ranked_specs = sorted(specialty_scores.items(), key=lambda kv: kv[1], reverse=True)
+    keywords: list[str] = []
+    for sp, _ in ranked_specs[:2]:
+        kw = SPECIALTY_TO_AMAP_KEYWORD.get(sp)
+        if kw and kw not in keywords:
+            keywords.append(kw)
+    # 始终附带一次综合检索，保证协和/301 等强综合医院在候选内
+    queries = keywords + [""]
+    merged: dict[str, dict] = {}
+    data_source = "demo"
+    for kw in queries:
+        try:
+            res = _amap.search_hospitals(keyword=kw, city=city or "北京", limit=max(12, limit))
+        except Exception:
+            continue
+        data_source = res.get("data_source", data_source)
+        for h in res.get("hospitals", []):
+            key = h.get("id") or h.get("name")
+            if key and key not in merged:
+                merged[key] = h
+    return {"hospitals": list(merged.values()), "data_source": data_source}
+
+
 @app.post("/api/recommendations")
 def recommendations_api(body: RecommendationIn):
     """根据症状 → 专科 → 医院优势进行推荐。
@@ -787,8 +832,8 @@ def recommendations_api(body: RecommendationIn):
         canonical = _hospital_specialty_canonical(body.specialty_override) or body.specialty_override
         specialty_scores[canonical] = specialty_scores.get(canonical, 0.0) + 120.0
 
-    # 获取医院列表
-    hospitals_result = _amap.search_hospitals(keyword="", city=body.city or "北京", limit=max(20, body.limit * 2))
+    # 按需检索候选医院：用对症专科关键词 + 综合检索合并（而非千篇一律的"医院"）
+    hospitals_result = _fetch_candidate_hospitals(specialty_scores, body.city or "北京", body.limit * 3)
     hospitals = hospitals_result.get("hospitals", [])
 
     scored_h = []
@@ -1216,7 +1261,7 @@ def privacy_wipe(current_user=Depends(require_current_user), db=Depends(get_db))
 def stats(db=Depends(get_db)):
     return StatsOut(
         hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-        triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS),
+        triage_rules=len(TRIAGE_RULES), medical_terms=TOTAL_MEDICAL_TERMS,
         users=db.query(models.User).count(),
         translations=db.query(models.TranslationLog).count(),
         urgent_events=db.query(models.TriageRecord).filter(models.TriageRecord.is_urgent == True).count(),

@@ -167,11 +167,16 @@ def _tokenize(text: str) -> List[str]:
     return tokens
 
 
-# 构建全局词频（用于 IDF）
+# 构建全局词频（用于 IDF）+ 预计算每篇文档的 tf/dl（避免每次检索重复分词，约 2000+ 篇）
 _DOC_FREQ: Counter = Counter()
 for doc in _RAG_DOCS:
-    text = doc["content"].lower()
-    uniq = set(_tokenize(text))
+    toks = _tokenize(doc["content"])
+    tf = Counter(toks)
+    for kw in (k.lower() for k in doc["keywords"] if k):
+        tf[kw] += 3
+    doc["_tf"] = tf
+    doc["_dl"] = max(len(toks), 1)
+    uniq = set(toks)
     for kw in (k.lower() for k in doc["keywords"] if k):
         uniq.add(kw)
     for t in uniq:
@@ -181,17 +186,12 @@ _TOTAL_DOCS = max(len(_RAG_DOCS), 1)
 
 
 def _bm25(query_tokens: List[str], doc: Dict, k1: float = 1.5, b: float = 0.75) -> float:
-    """简化版 BM25 打分。"""
-    doc_tokens = _tokenize(doc["content"])
-    if not doc_tokens:
+    """简化版 BM25 打分（使用预计算的 tf/dl，O(查询词) 而非每次重新分词整篇）。"""
+    tf = doc.get("_tf")
+    if not tf:
         return 0.0
     avg_len = 40  # 经验平均长度
-    dl = len(doc_tokens)
-    tf = Counter(doc_tokens)
-    # 额外把 keywords 作为 boosted 词
-    for kw in (k.lower() for k in doc["keywords"] if k):
-        tf[kw] += 3
-
+    dl = doc.get("_dl", 1)
     score = 0.0
     for qt in query_tokens:
         f = tf.get(qt, 0)
@@ -373,6 +373,32 @@ def _call_mymemory(text: str, source: str, target: str) -> Optional[str]:
     return None
 
 
+# -------------------- 预计算术语映射 / 合并正则（仅构建一次，加速每次请求） --------------------
+def _build_term_indexes():
+    en2zh: Dict[str, str] = {}
+    zh2en: Dict[str, str] = {}
+    for en, v in MEDICAL_TERMS.items():
+        zh = v[0] if v else ""
+        if en and zh:
+            en2zh.setdefault(en, zh)
+            zh2en.setdefault(zh, en)
+    for info in MEDICAL_CORPUS.values():
+        en = info.get("en", "")
+        zh = info.get("zh", "")
+        if en and zh:
+            en2zh.setdefault(en, zh)
+            zh2en.setdefault(zh, en)
+    return en2zh, zh2en
+
+
+_EN2ZH, _ZH2EN = _build_term_indexes()
+_EN_KEYS_SORTED = sorted((t for t in _EN2ZH if len(t) >= 3), key=len, reverse=True)
+_ZH_KEYS_SORTED = sorted((t for t in _ZH2EN if len(t) >= 2), key=len, reverse=True)
+# 单遍匹配用的合并正则（一次编译，findall 一遍扫描，取代每请求数千次单独 search）
+_EN_TERM_RE = re.compile(r"\b(" + "|".join(re.escape(t) for t in _EN_KEYS_SORTED) + r")\b", re.IGNORECASE) if _EN_KEYS_SORTED else None
+_ZH_TERM_RE = re.compile("(" + "|".join(re.escape(t) for t in _ZH_KEYS_SORTED) + ")") if _ZH_KEYS_SORTED else None
+
+
 # -------------------- 离线规则翻译（兜底） --------------------
 def _offline(text: str, source: str, target: str) -> str:
     if _norm_lang(source) == _norm_lang(target) or not text.strip():
@@ -380,81 +406,35 @@ def _offline(text: str, source: str, target: str) -> str:
     src = source.lower()
     tgt = target.lower()
     out = text
-    # 英文 → 中文：从专业语料库中逐个术语替换（长优先）
+    # 英文 → 中文：用预计算映射逐术语替换（长优先）
     if (src.startswith("en") or src == "auto") and tgt.startswith("zh"):
-        # 合并 MEDICAL_TERMS + MEDICAL_CORPUS 英中映射
-        en2zh: Dict[str, str] = {}
-        for en, v in MEDICAL_TERMS.items():
-            zh = v[0] if v else ""
-            if zh:
-                en2zh[en] = zh
-        for key, info in MEDICAL_CORPUS.items():
-            en = info.get("en", "")
-            zh = info.get("zh", "")
-            if en and zh:
-                en2zh[en] = zh
-        sorted_terms = sorted(en2zh.keys(), key=len, reverse=True)
-        for term in sorted_terms:
-            zh = en2zh[term]
-            pattern = re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
-            out = pattern.sub(zh, out)
+        for term in _EN_KEYS_SORTED:
+            out = re.sub(r"\b" + re.escape(term) + r"\b", _EN2ZH[term], out, flags=re.IGNORECASE)
         return out
     # 中文 → 英文
     if src.startswith("zh") and (tgt.startswith("en") or tgt == "auto"):
-        zh_to_en: Dict[str, str] = {}
-        for en, v in MEDICAL_TERMS.items():
-            zh = v[0] if v else ""
-            if zh:
-                zh_to_en[zh] = en
-        for key, info in MEDICAL_CORPUS.items():
-            zh = info.get("zh", "")
-            en = info.get("en", "")
-            if zh and en and zh not in zh_to_en:
-                zh_to_en[zh] = en
-        sorted_zh = sorted(zh_to_en.keys(), key=len, reverse=True)
-        for zh in sorted_zh:
-            out = out.replace(zh, " " + zh_to_en[zh] + " ")
+        for zh in _ZH_KEYS_SORTED:
+            if zh in out:
+                out = out.replace(zh, " " + _ZH2EN[zh] + " ")
         return " ".join(out.split())
     return text
 
 
 # -------------------- 术语对齐 / 置信度 --------------------
 def _match_terms(original: str) -> List[str]:
-    """扫描原文匹配的医学术语（合并 MEDICAL_TERMS + MEDICAL_CORPUS）。"""
+    """扫描原文匹配的医学术语。用预编译的合并正则单遍 findall，
+    取代以往每请求对数千术语逐个 re.search（O(术语数) → O(1 遍扫描)）。"""
     lower = original.lower()
     matched: List[str] = []
-    # 英文术语匹配
-    en_terms = set()
-    for term in MEDICAL_TERMS.keys():
-        en_terms.add(term.lower())
-    for key in MEDICAL_CORPUS.keys():
-        en_terms.add(key)
-    # 按长度倒序匹配
-    for term in sorted(en_terms, key=len, reverse=True):
-        if len(term) < 3:
-            continue
-        if re.search(r"\b" + re.escape(term) + r"\b", lower):
-            matched.append(term)
-    # 中文术语匹配
-    zh_terms = set()
-    for v in MEDICAL_TERMS.values():
-        zh = v[0] if v else ""
-        if zh:
-            zh_terms.add(zh)
-    for info in MEDICAL_CORPUS.values():
-        zh = info.get("zh", "")
-        if zh:
-            zh_terms.add(zh)
-    for zh in sorted(zh_terms, key=len, reverse=True):
-        if len(zh) < 2:
-            continue
-        if zh in original:
-            matched.append(zh)
+    if _EN_TERM_RE is not None:
+        matched.extend(m.lower() for m in _EN_TERM_RE.findall(lower))
+    if _ZH_TERM_RE is not None:
+        matched.extend(_ZH_TERM_RE.findall(original))
     # 去重、限制数量
     seen: set = set()
     result: List[str] = []
     for m in matched:
-        if m not in seen:
+        if m and m not in seen:
             seen.add(m)
             result.append(m)
         if len(result) >= 20:
