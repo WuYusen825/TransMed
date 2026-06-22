@@ -1368,3 +1368,47 @@ MEDICAL_TERMS = {
     "copayment": ("自付费用", "solutio propria"),
 }
 
+# --------------------------------------------------------------------------
+# Merge subagent-built expansion datasets (2026-06):
+#   - corpus_terms_ext.MEDICAL_TERMS_EXT  → +1.2k bilingual clinical terms
+#   - hospital_dataset.HOSPITALS_EXT      → 55 real 三甲 across 11 cities
+# Both are additive; existing curated entries win on key/id/name collisions.
+# --------------------------------------------------------------------------
+try:
+    from .corpus_terms_ext import MEDICAL_TERMS_EXT as _MEDICAL_TERMS_EXT
+    for _k, _v in _MEDICAL_TERMS_EXT.items():
+        MEDICAL_TERMS.setdefault(_k, _v)
+except Exception:  # pragma: no cover - expansion file optional
+    pass
+
+try:
+    from .hospital_dataset import HOSPITALS_EXT as _HOSPITALS_EXT
+    _existing_ids = {h.get("id") for h in HOSPITALS}
+    _existing_names = {h.get("name_zh") for h in HOSPITALS}
+    for _h in _HOSPITALS_EXT:
+        if _h.get("id") in _existing_ids or _h.get("name_zh") in _existing_names:
+            continue
+        HOSPITALS.append({
+            "id": _h.get("id"),
+            "name": _h.get("name", ""),
+            "name_zh": _h.get("name_zh", ""),
+            "address": _h.get("address_zh", ""),
+            "address_zh": _h.get("address_zh", ""),
+            "phone": _h.get("phone", ""),
+            "grade": _h.get("grade", ""),
+            "city": _h.get("city", ""),
+            "specialties": list(_h.get("specialties", [])),
+            "languages": list(_h.get("languages", ["Chinese"])),
+            "departments": [],
+            "rating": None,
+            "wait_minutes": 0,
+            "distance_km": None,
+            "hours": "",
+            "lng": _h.get("lng"),
+            "lat": _h.get("lat"),
+        })
+        _existing_ids.add(_h.get("id"))
+        _existing_names.add(_h.get("name_zh"))
+except Exception:  # pragma: no cover - expansion file optional
+    pass
+

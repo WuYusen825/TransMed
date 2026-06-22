@@ -15,7 +15,7 @@ import os
 import re
 import threading
 import time
-from collections import Counter
+from collections import Counter, OrderedDict
 from typing import List, Tuple, Dict, Optional
 
 from .config import settings
@@ -227,6 +227,40 @@ def retrieve(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
     return results
 
 
+# -------------------- 翻译结果缓存（进程内 TTL + 有界 LRU）--------------------
+# 相同 (text, source, target) 的重复翻译直接命中，省掉一次 Groq/MyMemory 外部调用
+# （Groq 往返通常占整次请求的绝大部分时间）。仅缓存成功的在线翻译结果，
+# 不改变任何输出 schema / 翻译质量。
+_TRANS_CACHE_TTL = 900.0   # 秒（15 分钟）
+_TRANS_CACHE_MAX = 512     # 有界，防止长跑进程内存无限增长
+_trans_cache: "OrderedDict[Tuple[str, str, str], Tuple[float, Tuple]]" = OrderedDict()
+_trans_cache_lock = threading.Lock()
+
+
+def _trans_cache_get(key: Tuple[str, str, str]) -> Optional[Tuple]:
+    """命中且未过期返回缓存的 translate() 结果元组；顺带刷新 LRU 顺序。"""
+    now = time.time()
+    with _trans_cache_lock:
+        item = _trans_cache.get(key)
+        if item is None:
+            return None
+        expires, value = item
+        if expires < now:
+            _trans_cache.pop(key, None)
+            return None
+        _trans_cache.move_to_end(key)  # 标记为最近使用
+        return value
+
+
+def _trans_cache_put(key: Tuple[str, str, str], value: Tuple) -> None:
+    """写入缓存并按 LRU 淘汰最旧条目。"""
+    with _trans_cache_lock:
+        _trans_cache[key] = (time.time() + _TRANS_CACHE_TTL, value)
+        _trans_cache.move_to_end(key)
+        while len(_trans_cache) > _TRANS_CACHE_MAX:
+            _trans_cache.popitem(last=False)  # 丢弃最久未使用
+
+
 # -------------------- Groq API 调用（OpenAI 兼容格式，超快响应）--------------------
 _GROQ_TIMEOUT = 30.0  # 秒
 
@@ -273,7 +307,9 @@ def _call_groq(text: str, source: str, target: str) -> Optional[str]:
             {"role": "user", "content": user_msg},
         ],
         "temperature": 0.2,
-        "max_tokens": 1024,
+        # 翻译输出长度受输入长度约束；512 token 对任何现实临床句子/段落都绰绰有余，
+        # 同时收紧最坏情况下的生成上限以缩短 Groq 往返时间（纯加速，不影响质量）。
+        "max_tokens": 512,
     }
 
     url = settings.GROQ_BASE_URL.rstrip("/") + "/chat/completions"
@@ -478,6 +514,13 @@ def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str
     src = _norm_lang(source)
     tgt = _norm_lang(target)
 
+    # 0) 缓存命中：相同 (text, src, tgt) 直接返回上次结果，省掉 RAG 检索 + 外部翻译调用。
+    #    仅缓存成功的在线/同语种结果（见末尾 _trans_cache_put），输出与首次完全一致。
+    cache_key = (text, src, tgt)
+    cached = _trans_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     # 1) RAG 检索：保存供前端在"医学参考"区显示，但**不**塞进翻译 prompt（避免模型复述语料）
     rag_tuples = retrieve(text, top_k=5)
     rag_context = [ctx for ctx, _ in rag_tuples]
@@ -486,19 +529,25 @@ def translate(text: str, source: str, target: str) -> Tuple[str, float, List[str
     matched = _match_terms(text)
 
     if src == tgt:
-        return text, 95.0, matched, "same-language", rag_context
+        result = (text, 95.0, matched, "same-language", rag_context)
+        _trans_cache_put(cache_key, result)
+        return result
 
     # 3) 首选 Groq LLM 翻译（纯翻译：RAG 上下文不传进 prompt）
     translated = _call_groq(text, source, target)
     if translated:
-        return translated, _confidence(len(matched), "groq"), matched, "groq", rag_context
+        result = (translated, _confidence(len(matched), "groq"), matched, "groq", rag_context)
+        _trans_cache_put(cache_key, result)
+        return result
 
     # 4) 备选 MyMemory 免费翻译（全球可用，无需 key）
     translated = _call_mymemory(text, source, target)
     if translated:
-        return translated, _confidence(len(matched), "mymemory"), matched, "mymemory", rag_context
+        result = (translated, _confidence(len(matched), "mymemory"), matched, "mymemory", rag_context)
+        _trans_cache_put(cache_key, result)
+        return result
 
-    # 5) 兜底离线翻译
+    # 5) 兜底离线翻译（不缓存：属降级/瞬时失败，下次请求可能 Groq 成功）
     logger.warning("All online translators failed — falling back to offline rule-based translation")
     offline = _offline(text, source, target)
     return offline, _confidence(len(matched), "offline"), matched, "offline", rag_context
@@ -514,7 +563,7 @@ def translate_with_rag(text: str, source: str, target: str) -> Dict:
     rag_tuples = retrieve(text, top_k=5)
     rag_context = [{"content": ctx, "score": s} for ctx, s in rag_tuples]
 
-    translated, conf, matched, engine = translate(text, source, target)
+    translated, conf, matched, engine, _ = translate(text, source, target)
 
     return {
         "translated": translated,

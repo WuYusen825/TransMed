@@ -20,7 +20,9 @@ Key 类型说明（不要混用）：
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -36,6 +38,40 @@ _GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
 _DIRECTION_WALKING = "https://restapi.amap.com/v3/direction/walking"
 _DIRECTION_DRIVING = "https://restapi.amap.com/v3/direction/driving"
 _TIMEOUT = 8.0
+
+# 并发批量搜索：线程池上限（受限于 requests 阻塞 IO，~6 足够覆盖
+# backend 一次推荐里的 3~7 个关键词，且不至于触发高德的 ACCESS_TOO_FREQUENT）
+_BATCH_MAX_WORKERS = 6
+
+# POI 搜索的进程内 TTL 缓存：key=(keyword, city, limit) → (到期时间戳, 结果)
+# 同一会话内重复的相同搜索直接命中，省掉一次阻塞 requests.get。
+_POI_CACHE_TTL = 300.0  # 秒（5 分钟）
+_POI_CACHE_MAX = 256    # 有界，避免长跑进程无限增长
+_poi_cache: Dict[Tuple[str, str, int], Tuple[float, Dict[str, Any]]] = {}
+_poi_cache_lock = threading.Lock()
+
+
+def _poi_cache_get(key: Tuple[str, str, int]) -> Optional[Dict[str, Any]]:
+    """读缓存：命中且未过期返回结果的浅拷贝（防止调用方原地修改污染缓存）。"""
+    now = time.time()
+    with _poi_cache_lock:
+        item = _poi_cache.get(key)
+        if item is None:
+            return None
+        expires, value = item
+        if expires < now:
+            _poi_cache.pop(key, None)
+            return None
+        return dict(value)
+
+
+def _poi_cache_put(key: Tuple[str, str, int], value: Dict[str, Any]) -> None:
+    """写缓存：有界淘汰（满了先丢最早过期/最旧的一条）。存浅拷贝以隔离调用方。"""
+    with _poi_cache_lock:
+        if len(_poi_cache) >= _POI_CACHE_MAX and key not in _poi_cache:
+            oldest = min(_poi_cache, key=lambda k: _poi_cache[k][0])
+            _poi_cache.pop(oldest, None)
+        _poi_cache[key] = (time.time() + _POI_CACHE_TTL, dict(value))
 
 # POI 分类：医院/综合医院/专科医院
 # 详见 https://lbs.amap.com/api/webservice/guide/api/search/#text
@@ -107,9 +143,25 @@ def search_hospitals(keyword: str = "", city: str = "北京", limit: int = 20) -
     返回：{"hospitals": [...], "count": n, "data_source": "amap" | "demo"}
     每个医院包含：id, name, name_zh, address, phone, rating, distance_km,
                   specialties, insurance, languages, departments, lat, lng
+
+    带进程内 TTL 缓存（5 分钟）：同一会话内相同 (keyword, city, limit) 的
+    重复搜索直接命中缓存，省掉一次阻塞的 requests.get。缓存对真实网络结果与
+    demo 兜底都生效，返回结构与未缓存路径完全一致。
     """
     city_zh = _normalize_city(city)
+    cache_key = ((keyword or "").strip(), city_zh, int(limit))
 
+    cached = _poi_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = _search_hospitals_uncached(keyword, city_zh, limit)
+    _poi_cache_put(cache_key, result)
+    return result
+
+
+def _search_hospitals_uncached(keyword: str, city_zh: str, limit: int) -> Dict[str, Any]:
+    """search_hospitals 的实际实现（未缓存）。city_zh 已规范化。"""
     if not _has_web_key():
         logger.info("AMAP key not configured — falling back to demo hospitals")
         return _demo_hospitals(city_zh, keyword, limit)
@@ -223,6 +275,38 @@ def search_hospitals(keyword: str = "", city: str = "北京", limit: int = 20) -
         return _demo_hospitals(city_zh, keyword, limit)
 
     return {"hospitals": results, "count": len(results), "data_source": "amap", "city": city_zh}
+
+
+def search_hospitals_many(keywords: List[str], city: str = "北京", limit: int = 20) -> List[Dict[str, Any]]:
+    """并发批量 POI 搜索：对每个 keyword 调用一次 `search_hospitals`，用线程池
+    并行跑（高德 restapi 是阻塞 IO，并发能把 backend 一次推荐里的 3~7 次串行
+    请求压缩成一次墙钟时间）。
+
+    返回：一个与 `keywords` **输入顺序一致** 的结果字典列表，每个元素的结构与
+    `search_hospitals` 的返回完全相同（{"hospitals": [...], "count": n,
+    "data_source": ..., "city": ...}）。
+
+    容错：单个关键词的搜索若抛异常，对应槽位返回一个安全的空 demo 结果
+    （不会让整批失败）。命中 TTL 缓存的关键词不会真的发起网络请求。
+    """
+    keywords = list(keywords or [])
+    if not keywords:
+        return []
+
+    city_zh = _normalize_city(city)
+
+    def _one(kw: str) -> Dict[str, Any]:
+        try:
+            return search_hospitals(kw, city_zh, limit)
+        except Exception as e:  # 单个失败不拖垮整批
+            logger.warning("AMAP batch search failed for keyword=%r: %s", kw, e)
+            return _demo_hospitals(city_zh, kw, limit, amap_error=str(e))
+
+    # 线程数不超过关键词数，也不超过上限
+    workers = max(1, min(_BATCH_MAX_WORKERS, len(keywords)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        # executor.map 保持输入顺序；异常已在 _one 内吞掉，不会从 map 抛出
+        return list(pool.map(_one, keywords))
 
 
 def _demo_hospitals(city_zh: str, keyword: str, limit: int, amap_error: Optional[str] = None) -> Dict[str, Any]:

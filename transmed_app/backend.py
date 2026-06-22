@@ -586,6 +586,19 @@ def _build_leader_index() -> dict[str, set]:
     return idx
 
 
+# 合并子代理扩充的全国专科领先榜（更多专科 + 更多城市），按 frag 去重
+try:
+    from .hospital_dataset import SPECIALTY_LEADERS_EXT as _SPECIALTY_LEADERS_EXT
+    for _sp, _leaders in _SPECIALTY_LEADERS_EXT.items():
+        _cur = SPECIALTY_LEADERS.setdefault(_sp, [])
+        _frags = {l.get("frag") for l in _cur}
+        for _ld in _leaders:
+            if _ld.get("frag") and _ld["frag"] not in _frags:
+                _cur.append({"q": _ld.get("q", ""), "frag": _ld["frag"]})
+                _frags.add(_ld["frag"])
+except Exception:  # pragma: no cover - expansion file optional
+    pass
+
 _LEADER_INDEX = _build_leader_index()
 
 
@@ -881,14 +894,18 @@ def _fetch_candidate_hospitals(specialty_scores: dict, city: str, limit: int) ->
         kw = SPECIALTY_TO_AMAP_KEYWORD.get(sp)
         if kw and kw not in keywords:
             keywords.append(kw)
-    # 始终附带一次综合检索，保证协和/301 等强综合医院在候选内
+    # 始终附带一次综合检索，保证协和/301 等强综合医院在候选内。
+    # 这些查询并行批量执行（高德调用从串行 3~7 次 → 一次并发批），显著降低推荐延迟。
     queries = keywords + [""]
+    city_q = city or "北京"
     merged: dict[str, dict] = {}
     data_source = "demo"
-    for kw in queries:
-        try:
-            res = _amap.search_hospitals(keyword=kw, city=city or "北京", limit=max(12, limit))
-        except Exception:
+    try:
+        batch = _amap.search_hospitals_many(queries, city=city_q, limit=max(12, limit))
+    except Exception:
+        batch = []
+    for res in batch:
+        if not isinstance(res, dict):
             continue
         data_source = res.get("data_source", data_source)
         for h in res.get("hospitals", []):
@@ -896,26 +913,29 @@ def _fetch_candidate_hospitals(specialty_scores: dict, city: str, limit: int) ->
             if key and key not in merged:
                 merged[key] = h
 
-    # 确保 Top 专科的全国领先医院在候选集中：缺失则按名补检索（含真实坐标/电话）
+    # 确保 Top 专科的全国领先医院在候选集中：缺失则按名并发补检索（含真实坐标/电话）
     present = " ".join((h.get("name_zh") or h.get("name") or "") for h in merged.values())
     want: list[dict] = []
     for sp, _ in ranked_specs[:2]:
         for ld in SPECIALTY_LEADERS.get(sp, []):
             if ld["frag"] not in present and all(ld["frag"] != w["frag"] for w in want):
                 want.append(ld)
-    for ld in want[:4]:
+    want = want[:6]
+    if want:
         try:
-            res = _amap.search_hospitals(keyword=ld["q"], city=city or "北京", limit=2)
+            lead_batch = _amap.search_hospitals_many([w["q"] for w in want], city=city_q, limit=2)
         except Exception:
-            continue
-        for h in res.get("hospitals", []):
-            if ld["frag"] in (h.get("name_zh") or h.get("name") or ""):
-                h.setdefault("grade", "三级甲等")  # 榜单领先医院均为三甲（事实）
-                key = h.get("id") or h.get("name")
-                if key and key not in merged:
-                    merged[key] = h
-                present += " " + (h.get("name_zh") or "")
-                break
+            lead_batch = []
+        for ld, res in zip(want, lead_batch):
+            if not isinstance(res, dict):
+                continue
+            for h in res.get("hospitals", []):
+                if ld["frag"] in (h.get("name_zh") or h.get("name") or ""):
+                    h.setdefault("grade", "三级甲等")  # 榜单领先医院均为三甲（事实）
+                    key = h.get("id") or h.get("name")
+                    if key and key not in merged:
+                        merged[key] = h
+                    break
     return {"hospitals": list(merged.values()), "data_source": data_source}
 
 
