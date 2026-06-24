@@ -76,6 +76,8 @@ class Settings:
         "https://icdaccessmanagement.who.int/connect/token",
     )
     ICD_BASE_URL: str = os.environ.get("TRANSMED_ICD_BASE_URL", "https://id.who.int")
+    # MMS 线性化版本（带 ICD-11 编码 + 官方多语标签）。2024-01 中文覆盖稳定；最新为 2026-01。
+    ICD_RELEASE: str = os.environ.get("TRANSMED_ICD_RELEASE", "2024-01")
 
 
 settings = Settings()
