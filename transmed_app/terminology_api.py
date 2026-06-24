@@ -57,15 +57,20 @@ def _rxnorm_approx(term: str) -> List[Dict]:
                 .get("approximateGroup", {})
                 .get("candidate", [])
             )
-            results = [
-                {
+            for c in candidates:
+                if not c.get("name"):
+                    continue
+                # RxNorm 的 score 是浮点字符串（如 "10.36"）；int() 会抛 ValueError，
+                # 必须用 float 解析（这正是之前 RxNorm 始终返回空的根因）。
+                try:
+                    score = float(c.get("score", 0) or 0)
+                except (TypeError, ValueError):
+                    score = 0.0
+                results.append({
                     "name": c.get("name", ""),
                     "rxcui": c.get("rxcui", ""),
-                    "score": int(c.get("score", 0)),
-                }
-                for c in candidates
-                if c.get("name")
-            ]
+                    "score": score,
+                })
     except Exception as exc:
         logger.debug("RxNorm request failed for '%s': %s", term, exc)
 
@@ -270,14 +275,23 @@ def retrieve_via_api(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
 
     # 1. RxNorm: try the query itself then individual long tokens
     tried_rx: set = set()
+    seen_rxcui: set = set()
     for candidate in ([query[:80]] + en_tokens[:3]):
         if candidate in tried_rx or len(candidate) < 3:
             continue
         tried_rx.add(candidate)
-        for drug in _rxnorm_approx(candidate)[:2]:
+        cand_first = candidate.split()[0].lower() if candidate.split() else ""
+        for drug in _rxnorm_approx(candidate)[:3]:
             name = drug.get("name", "")
             rxcui = drug.get("rxcui", "")
-            if name:
+            # 过滤模糊匹配噪音：要求药品名首词 == 查询词首词。否则疾病/症状词会被 RxNorm
+            # 模糊匹配到名字里含该词的无关药品商品名（diabetes→"Diabetic Tussin"、
+            # fever→"Little Fevers"、headache→"BC Headache"），污染医学参考。
+            # score 阈值无效（这类噪音 score 与真药品重叠），首词匹配才能区分。
+            name_first = name.split()[0].lower() if name.split() else ""
+            # 同一 RXCUI 的多个大小写 / 来源变体（Aspirin / aspirin / ASPIRIN）只保留一个
+            if name and name_first == cand_first and rxcui not in seen_rxcui:
+                seen_rxcui.add(rxcui)
                 label = f"[RxNorm药品] {name}"
                 if rxcui:
                     label += f" (RXCUI:{rxcui})"
