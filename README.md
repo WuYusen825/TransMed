@@ -257,8 +257,12 @@ curl -X POST http://127.0.0.1:8000/api/translate \
 | `TRANSMED_AMAP_KEY` | _(内置 demo)_ | 高德「**Web 服务**」Key：后端医院 POI 检索 / 地理编码 |
 | `TRANSMED_AMAP_JS_KEY` | _(内置 demo)_ | 高德「**Web 端 (JS API)**」Key：前端地图 |
 | `TRANSMED_AMAP_SECURITY_JS_CODE` | _(空)_ | 与 JS Key 配套的**安全密钥**；**不填则页面内画不出路线**（见下方「高德地图配置」） |
+| `TRANSMED_ICD_CLIENT_ID` | _(空)_ | WHO ICD-11 API Client Id，[icd.who.int/icdapi](https://icd.who.int/icdapi) 注册后获取；留空则 RAG 仅用 RxNorm+MeSH |
+| `TRANSMED_ICD_CLIENT_SECRET` | _(空)_ | WHO ICD-11 API Client Secret（与上面配套） |
 
 > ⚠️ 仓库内置的高德 Key 仅供本地试跑，**生产请在 Render 控制台填入你自己的 Key**（`render.yaml` 已留好 `sync:false` 占位）。
+
+> **术语库 RAG 说明**：翻译的医学术语参考通过外部权威 API 实时检索——RxNorm（NIH，药品）+ NCBI MeSH（医学概念）默认即用、无需注册；配置 ICD-11 凭据后额外接入 WHO 官方疾病分类（中英对照、最高优先级）。所有结果内存缓存 1 小时。
 
 ### 🗺️ 高德地图配置（含「安全密钥」申请，导航画线必读）
 

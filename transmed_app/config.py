@@ -63,5 +63,19 @@ class Settings:
     # 通过环境变量 TRANSMED_AMAP_SECURITY_JS_CODE 设置；为空时前端自动回退到「外部地图App + 文字路线」。
     AMAP_SECURITY_JS_CODE: str = os.environ.get("TRANSMED_AMAP_SECURITY_JS_CODE", "")
 
+    # ——— WHO ICD-11 API（权威疾病分类术语库，官方多语含中文）———
+    # 免费，但需注册获取 OAuth2 凭据：
+    #   1) 访问 https://icd.who.int/icdapi 注册并登录
+    #   2) 点击 "View API access key" 获取 Client Id / Client Secret
+    #   3) 把两者填入下面两个环境变量（本地 .env 或 Render env）
+    # 未配置时 ICD-11 检索自动跳过，RAG 退回 RxNorm + MeSH，不会报错。
+    ICD_CLIENT_ID: str = os.environ.get("TRANSMED_ICD_CLIENT_ID", "")
+    ICD_CLIENT_SECRET: str = os.environ.get("TRANSMED_ICD_CLIENT_SECRET", "")
+    ICD_TOKEN_URL: str = os.environ.get(
+        "TRANSMED_ICD_TOKEN_URL",
+        "https://icdaccessmanagement.who.int/connect/token",
+    )
+    ICD_BASE_URL: str = os.environ.get("TRANSMED_ICD_BASE_URL", "https://id.who.int")
+
 
 settings = Settings()
