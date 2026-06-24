@@ -45,8 +45,12 @@ from .auth import (hash_password, verify_password, create_jwt,
 from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
                    MEDICATIONS,
                    SYMPTOM_TO_SPECIALTIES, SPECIALTY_ALIASES, HOSPITAL_STRENGTH)
+from .corpus_medical import MEDICAL_CORPUS as _MEDICAL_CORPUS
 from . import reviews as _reviews
 from . import amap as _amap
+
+# 真实可检索的医学术语总量 = 基础词典(MEDICAL_TERMS) + ICD-10 专业语料(MEDICAL_CORPUS)
+TOTAL_MEDICAL_TERMS = len(MEDICAL_TERMS) + len(_MEDICAL_CORPUS)
 
 # ------------------------------------------------------------------ initialise DB
 models.Base.metadata.create_all(bind=engine)
@@ -266,7 +270,7 @@ def _hospital_to_out(h: dict) -> HospitalOut:
 @app.get("/health", response_model=HealthOut)
 def health():
     return HealthOut(hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-                     triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS))
+                     triage_rules=len(TRIAGE_RULES), medical_terms=TOTAL_MEDICAL_TERMS)
 
 
 # -------------------------------------------------------------- translate
@@ -533,6 +537,82 @@ def _hospital_has_specialty(hospital: dict, canonical_specialty: str) -> float:
     return 10.0
 
 
+# --------------------------------------------------------------------------
+# 权威专科榜单（依据复旦版《中国医院专科声誉排行榜》+ 国家临床重点专科，北京）。
+# 作用：按「症状 → 专科」推荐时，确保该专科的全国领先医院进入候选并排在前列，
+# 并给出事实型理由（医院等级 / 专科全国领先），不杜撰评分或点评数量。
+# frag = 用于在医院名中做子串匹配的判别片段；q = 缺失时按名检索高德的查询词。
+# --------------------------------------------------------------------------
+SPECIALTY_LEADERS: dict[str, list[dict]] = {
+    "Cardiology": [{"q": "中国医学科学院阜外医院", "frag": "阜外"}, {"q": "北京安贞医院", "frag": "安贞"}],
+    "Cardiovascular Surgery": [{"q": "中国医学科学院阜外医院", "frag": "阜外"}, {"q": "北京安贞医院", "frag": "安贞"}],
+    "Neurology": [{"q": "首都医科大学宣武医院", "frag": "宣武"}, {"q": "北京天坛医院", "frag": "天坛"}],
+    "Neurosurgery": [{"q": "北京天坛医院", "frag": "天坛"}, {"q": "首都医科大学宣武医院", "frag": "宣武"}],
+    "Oncology": [{"q": "中国医学科学院肿瘤医院", "frag": "医学科学院肿瘤"}, {"q": "北京大学肿瘤医院", "frag": "北京大学肿瘤"}],
+    "Surgical Oncology": [{"q": "中国医学科学院肿瘤医院", "frag": "医学科学院肿瘤"}, {"q": "北京大学肿瘤医院", "frag": "北京大学肿瘤"}],
+    "Pediatrics": [{"q": "北京儿童医院", "frag": "儿童医院"}, {"q": "首都儿科研究所", "frag": "儿科研究所"}],
+    "Pediatric Surgery": [{"q": "北京儿童医院", "frag": "儿童医院"}, {"q": "首都儿科研究所", "frag": "儿科研究所"}],
+    "Obstetrics & Gynecology": [{"q": "北京妇产医院", "frag": "妇产"}, {"q": "北京协和医院", "frag": "协和"}],
+    "Gynecology": [{"q": "北京妇产医院", "frag": "妇产"}, {"q": "北京协和医院", "frag": "协和"}],
+    "Ophthalmology": [{"q": "北京同仁医院", "frag": "同仁"}],
+    "ENT": [{"q": "北京同仁医院", "frag": "同仁"}],
+    "Orthopedics": [{"q": "北京积水潭医院", "frag": "积水潭"}, {"q": "北京大学第三医院", "frag": "北京大学第三"}],
+    "Sports Medicine": [{"q": "北京大学第三医院", "frag": "北京大学第三"}, {"q": "北京积水潭医院", "frag": "积水潭"}],
+    "Dermatology": [{"q": "北京大学第一医院", "frag": "北京大学第一"}, {"q": "中日友好医院", "frag": "中日友好"}],
+    "Dental": [{"q": "北京大学口腔医院", "frag": "口腔"}],
+    "Oral Surgery": [{"q": "北京大学口腔医院", "frag": "口腔"}],
+    "Respiratory": [{"q": "中日友好医院", "frag": "中日友好"}, {"q": "首都医科大学附属北京朝阳医院", "frag": "朝阳医院"}],
+    "Pulmonary / Respiratory": [{"q": "中日友好医院", "frag": "中日友好"}, {"q": "首都医科大学附属北京朝阳医院", "frag": "朝阳医院"}],
+    "Gastroenterology": [{"q": "首都医科大学附属北京友谊医院", "frag": "友谊"}, {"q": "北京协和医院", "frag": "协和"}],
+    "Endocrinology": [{"q": "北京协和医院", "frag": "协和"}, {"q": "中日友好医院", "frag": "中日友好"}],
+    "Urology": [{"q": "北京大学第一医院", "frag": "北京大学第一"}, {"q": "中国人民解放军总医院", "frag": "解放军总医院"}],
+    "Mental Health / Psychiatry": [{"q": "北京大学第六医院", "frag": "北京大学第六"}, {"q": "北京安定医院", "frag": "安定"}],
+    "Rheumatology": [{"q": "北京协和医院", "frag": "协和"}, {"q": "北京大学人民医院", "frag": "北京大学人民"}],
+    "Hematology": [{"q": "北京大学人民医院", "frag": "北京大学人民"}, {"q": "北京大学第一医院", "frag": "北京大学第一"}],
+    "Nephrology": [{"q": "北京大学第一医院", "frag": "北京大学第一"}, {"q": "中国人民解放军总医院", "frag": "解放军总医院"}],
+    "Geriatrics": [{"q": "北京医院", "frag": "北京医院"}, {"q": "首都医科大学宣武医院", "frag": "宣武"}],
+    "Infectious Diseases": [{"q": "北京地坛医院", "frag": "地坛"}, {"q": "北京佑安医院", "frag": "佑安"}],
+    "Traditional Chinese Medicine": [{"q": "中国中医科学院广安门医院", "frag": "广安门"}, {"q": "北京中医药大学东直门医院", "frag": "东直门"}],
+    "Emergency": [{"q": "北京协和医院", "frag": "协和"}, {"q": "首都医科大学附属北京朝阳医院", "frag": "朝阳医院"}],
+    "General Medicine": [{"q": "北京协和医院", "frag": "协和"}, {"q": "中国人民解放军总医院", "frag": "解放军总医院"}],
+}
+
+
+def _build_leader_index() -> dict[str, set]:
+    idx: dict[str, set] = {}
+    for sp, leaders in SPECIALTY_LEADERS.items():
+        for ld in leaders:
+            idx.setdefault(ld["frag"], set()).add(sp)
+    return idx
+
+
+# 合并子代理扩充的全国专科领先榜（更多专科 + 更多城市），按 frag 去重
+try:
+    from .hospital_dataset import SPECIALTY_LEADERS_EXT as _SPECIALTY_LEADERS_EXT
+    for _sp, _leaders in _SPECIALTY_LEADERS_EXT.items():
+        _cur = SPECIALTY_LEADERS.setdefault(_sp, [])
+        _frags = {l.get("frag") for l in _cur}
+        for _ld in _leaders:
+            if _ld.get("frag") and _ld["frag"] not in _frags:
+                _cur.append({"q": _ld.get("q", ""), "frag": _ld["frag"]})
+                _frags.add(_ld["frag"])
+except Exception:  # pragma: no cover - expansion file optional
+    pass
+
+_LEADER_INDEX = _build_leader_index()
+
+
+def _hospital_leader_specialties(name: str) -> set:
+    """该医院（按名片段）是哪些专科的全国领先单位。"""
+    if not name:
+        return set()
+    out: set = set()
+    for frag, sps in _LEADER_INDEX.items():
+        if frag in name:
+            out |= sps
+    return out
+
+
 def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], language: str = "", urgent: bool = False) -> dict:
     """Calculate aggregate recommendation score + list of reasons for hospital.
     Returns {"score": float, "reasons": List[str], "matched_specialties": List[str], "matched_language": bool}"""
@@ -546,6 +626,23 @@ def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], la
             specialty_score_sum += matched_specialty_score
             matched_specialties.append(sp)
             reasons.append(f"{sp}: specialty score {round(strength)} match with your symptoms")
+
+    # 权威加权：该医院是否为命中专科的全国领先单位（复旦榜 / 国家临床重点专科）
+    leader_sps = _hospital_leader_specialties((hospital.get("name_zh") or "") + " " + (hospital.get("name") or ""))
+    leadership_score = 0.0
+    leader_matched: List[str] = []
+    for sp, weight in specialty_scores.items():
+        if sp in leader_sps and weight > 0:
+            leadership_score += 35.0 * (weight / 100.0) + 18.0
+            leader_matched.append(sp)
+            if sp not in matched_specialties:
+                matched_specialties.append(sp)
+    if leader_matched:
+        reasons.insert(0, f"National leader in {leader_matched[0]}")
+
+    # 医院等级（三级甲等）作为质量信号
+    grade = str(hospital.get("grade") or "")
+    grade_score = 12.0 if ("三级甲等" in grade or "三甲" in grade) else 0.0
 
     # Rating: 0-5 scale → normalized to 0-40 points of score
     _r = hospital.get("rating")
@@ -578,7 +675,7 @@ def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], la
         if language.lower() in [l.lower() for l in langs]:
             matched_language = True
 
-    total = specialty_score_sum + rating_score + distance_score + wait_score
+    total = specialty_score_sum + leadership_score + grade_score + rating_score + distance_score + wait_score
     if matched_language:
         total += 10
         reasons.append("Speaks your language")
@@ -593,11 +690,15 @@ def _recommendation_score(hospital: dict, specialty_scores: dict[str, float], la
     return {
         "score": round(total, 2),
         "specialty_score": round(specialty_score_sum, 2),
+        "leadership_score": round(leadership_score, 2),
+        "grade_score": round(grade_score, 2),
         "rating_score": round(rating_score, 2),
         "distance_score": round(distance_score, 2),
         "wait_score": round(wait_score, 2),
         "reasons": reasons[:5],
         "matched_specialties": matched_specialties,
+        "leader_specialties": leader_matched,
+        "grade": grade,
         "matched_language": matched_language,
     }
 
@@ -769,6 +870,75 @@ class RecommendationIn(BaseModel):
     limit: int = 10
 
 
+# 专科 → 高德 POI 搜索关键词（中文），用于"按需"检索对症医院
+SPECIALTY_TO_AMAP_KEYWORD: dict[str, str] = {
+    "Cardiology": "心血管", "Cardiovascular Surgery": "心血管", "Neurology": "神经",
+    "Neurosurgery": "神经外科", "Oncology": "肿瘤", "Surgical Oncology": "肿瘤",
+    "Pediatrics": "儿童", "Pediatric Surgery": "儿童", "Obstetrics & Gynecology": "妇产",
+    "Gynecology": "妇产", "Ophthalmology": "眼科", "ENT": "耳鼻喉", "Orthopedics": "骨科",
+    "Sports Medicine": "骨科", "Dermatology": "皮肤", "Dental": "口腔", "Oral Surgery": "口腔",
+    "Emergency": "急诊", "Respiratory": "呼吸", "Pulmonary / Respiratory": "呼吸",
+    "Gastroenterology": "消化", "Endocrinology": "内分泌", "Urology": "泌尿",
+    "Mental Health / Psychiatry": "精神", "Rheumatology": "风湿免疫", "Hematology": "血液",
+    "Nephrology": "肾内", "Geriatrics": "老年", "Infectious Diseases": "感染",
+    "Traditional Chinese Medicine": "中医",
+}
+
+
+def _fetch_candidate_hospitals(specialty_scores: dict, city: str, limit: int) -> dict:
+    """按需检索：用症状对应的 Top 专科中文关键词搜对症医院，并与综合医院结果合并去重。
+    这样候选集本身就贴合需求，而非千篇一律的"医院"。"""
+    ranked_specs = sorted(specialty_scores.items(), key=lambda kv: kv[1], reverse=True)
+    keywords: list[str] = []
+    for sp, _ in ranked_specs[:2]:
+        kw = SPECIALTY_TO_AMAP_KEYWORD.get(sp)
+        if kw and kw not in keywords:
+            keywords.append(kw)
+    # 始终附带一次综合检索，保证协和/301 等强综合医院在候选内。
+    # 这些查询并行批量执行（高德调用从串行 3~7 次 → 一次并发批），显著降低推荐延迟。
+    queries = keywords + [""]
+    city_q = city or "北京"
+    merged: dict[str, dict] = {}
+    data_source = "demo"
+    try:
+        batch = _amap.search_hospitals_many(queries, city=city_q, limit=max(12, limit))
+    except Exception:
+        batch = []
+    for res in batch:
+        if not isinstance(res, dict):
+            continue
+        data_source = res.get("data_source", data_source)
+        for h in res.get("hospitals", []):
+            key = h.get("id") or h.get("name")
+            if key and key not in merged:
+                merged[key] = h
+
+    # 确保 Top 专科的全国领先医院在候选集中：缺失则按名并发补检索（含真实坐标/电话）
+    present = " ".join((h.get("name_zh") or h.get("name") or "") for h in merged.values())
+    want: list[dict] = []
+    for sp, _ in ranked_specs[:2]:
+        for ld in SPECIALTY_LEADERS.get(sp, []):
+            if ld["frag"] not in present and all(ld["frag"] != w["frag"] for w in want):
+                want.append(ld)
+    want = want[:6]
+    if want:
+        try:
+            lead_batch = _amap.search_hospitals_many([w["q"] for w in want], city=city_q, limit=2)
+        except Exception:
+            lead_batch = []
+        for ld, res in zip(want, lead_batch):
+            if not isinstance(res, dict):
+                continue
+            for h in res.get("hospitals", []):
+                if ld["frag"] in (h.get("name_zh") or h.get("name") or ""):
+                    h.setdefault("grade", "三级甲等")  # 榜单领先医院均为三甲（事实）
+                    key = h.get("id") or h.get("name")
+                    if key and key not in merged:
+                        merged[key] = h
+                    break
+    return {"hospitals": list(merged.values()), "data_source": data_source}
+
+
 @app.post("/api/recommendations")
 def recommendations_api(body: RecommendationIn):
     """根据症状 → 专科 → 医院优势进行推荐。
@@ -787,8 +957,8 @@ def recommendations_api(body: RecommendationIn):
         canonical = _hospital_specialty_canonical(body.specialty_override) or body.specialty_override
         specialty_scores[canonical] = specialty_scores.get(canonical, 0.0) + 120.0
 
-    # 获取医院列表
-    hospitals_result = _amap.search_hospitals(keyword="", city=body.city or "北京", limit=max(20, body.limit * 2))
+    # 按需检索候选医院：用对症专科关键词 + 综合检索合并（而非千篇一律的"医院"）
+    hospitals_result = _fetch_candidate_hospitals(specialty_scores, body.city or "北京", body.limit * 3)
     hospitals = hospitals_result.get("hospitals", [])
 
     scored_h = []
@@ -804,11 +974,13 @@ def recommendations_api(body: RecommendationIn):
     scored_h.sort(key=lambda pair: pair[1], reverse=True)
     ranked = [h for h, _ in scored_h[: body.limit]]
 
-    # 追加真实评价数据
-    try:
-        ranked = _reviews.enrich_hospital_list(ranked)
-    except Exception:
-        pass
+    # 仅保留事实型信号：医院等级（三甲）+ 专科全国领先；不再注入模板化点评。
+    for h in ranked:
+        rec = h.get("recommendation") or {}
+        if not h.get("grade") and rec.get("grade"):
+            h["grade"] = rec["grade"]
+        if not h.get("grade") and rec.get("leader_specialties"):
+            h["grade"] = "三级甲等"
 
     return {
         "triage": {
@@ -1216,7 +1388,7 @@ def privacy_wipe(current_user=Depends(require_current_user), db=Depends(get_db))
 def stats(db=Depends(get_db)):
     return StatsOut(
         hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-        triage_rules=len(TRIAGE_RULES), medical_terms=len(MEDICAL_TERMS),
+        triage_rules=len(TRIAGE_RULES), medical_terms=TOTAL_MEDICAL_TERMS,
         users=db.query(models.User).count(),
         translations=db.query(models.TranslationLog).count(),
         urgent_events=db.query(models.TriageRecord).filter(models.TriageRecord.is_urgent == True).count(),

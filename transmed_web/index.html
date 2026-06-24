@@ -2,69 +2,88 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>TransMed — AI Multilingual Medical Companion</title>
+<meta name="description" content="TransMed — AI multilingual medical translation, smart hospital matching and in-map navigation for foreigners seeking care in China." />
 <meta name="api-base" content="https://transmed.onrender.com" />
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231e40af'/%3E%3Ctext x='32' y='42' font-size='28' font-weight='700' text-anchor='middle' fill='white' font-family='system-ui'%3ETM%3C/text%3E%3C/svg%3E" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%231A78C2'/%3E%3Cstop offset='1' stop-color='%230E9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Crect x='27' y='15' width='10' height='34' rx='3' fill='white'/%3E%3Crect x='15' y='27' width='34' height='10' rx='3' fill='white'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header class="topbar">
+
+<header class="topbar" id="topbar">
   <div class="brand">
-    <div class="logo">TM</div>
+    <span class="logo" aria-label="TransMed logo">
+      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs><linearGradient id="tmg" x1="6" y1="4" x2="58" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#1A78C2"/><stop offset="1" stop-color="#0E9488"/></linearGradient></defs>
+        <path d="M17 4H51a9 9 0 0 1 9 9V39a9 9 0 0 1-9 9H30L18 58V48H13a9 9 0 0 1-9-9V13a9 9 0 0 1 9-9Z" fill="url(#tmg)"/>
+        <rect x="28" y="12.5" width="8" height="27" rx="2.2" fill="#fff"/>
+        <rect x="18.5" y="22" width="27" height="8" rx="2.2" fill="#fff"/>
+      </svg>
+    </span>
     <div>
       <h1>TransMed</h1>
-      <div class="tagline">AI-powered multilingual medical companion for foreigners in China</div>
+      <div class="tagline" data-i18n="tagline">AI medical companion · in-China care</div>
     </div>
   </div>
 
   <nav class="nav">
-    <a class="nav-link active" data-view="home">Home</a>
-    <a class="nav-link" data-view="translate">Translate</a>
-    <a class="nav-link" data-view="hospitals">Hospitals</a>
-    <a class="nav-link" data-view="navigation">Navigation</a>
-    <a class="nav-link" data-view="medication">Medication</a>
-    <a class="nav-link" data-view="privacy">Privacy</a>
-    <a class="nav-link" data-view="profile">My Account</a>
+    <a class="nav-link active" data-view="home" data-i18n="nav_home">Home</a>
+    <a class="nav-link" data-view="translate" data-i18n="nav_translate">Translate</a>
+    <a class="nav-link" data-view="hospitals" data-i18n="nav_hospitals">Hospitals</a>
+    <a class="nav-link" data-view="navigation" data-i18n="nav_navigation">Navigation</a>
+    <a class="nav-link" data-view="medication" data-i18n="nav_medication">Medication</a>
+    <a class="nav-link" data-view="account" data-i18n="nav_account">Account</a>
   </nav>
 
   <div class="user-area">
-    <button id="btn-login" class="btn btn-light">Log in / Register</button>
+    <button id="btn-lang" class="btn btn-ghost btn-sm" title="Language"><span class="globe">🌐</span> <span id="btn-lang-label">EN</span></button>
+    <button id="btn-login" class="btn btn-dark btn-sm" data-i18n="login_register">Log in / Register</button>
     <div id="user-chip" class="user-chip hidden">
       <span id="user-email">—</span>
-      <button id="btn-logout" class="btn btn-light">Sign out</button>
+      <button id="btn-logout" class="btn btn-ghost btn-sm" data-i18n="signout">Sign out</button>
     </div>
   </div>
 </header>
 
-<!-- 登录/注册弹窗 -->
+<!-- ============== Language picker (first visit) ============== -->
+<div id="lang-modal" class="modal hidden">
+  <div class="modal-card lang-card">
+    <div class="lang-head">🌐</div>
+    <h3 class="center" data-i18n="lang_pick_title" style="font-family:var(--font-serif);font-weight:500;">Choose your language</h3>
+    <p class="muted small center" data-i18n="lang_pick_sub">The whole app will switch to it. You can change it anytime from the top bar.</p>
+    <div class="lang-grid" id="lang-grid"></div>
+  </div>
+</div>
+
+<!-- ============== Auth modal ============== -->
 <div id="auth-modal" class="modal hidden">
   <div class="modal-card">
     <div class="modal-tabs">
-      <button class="tab active" data-tab="login">Log in</button>
-      <button class="tab" data-tab="register">Register</button>
+      <button class="tab active" data-tab="login" data-i18n="login_tab">Log in</button>
+      <button class="tab" data-tab="register" data-i18n="register_tab">Register</button>
     </div>
     <div id="tab-login" class="tab-panel">
-      <label>Email</label><input id="login-email" type="email" placeholder="demo@transmed.io" />
-      <label>Password</label><input id="login-password" type="password" placeholder="demo123" />
-      <button class="btn btn-primary" id="btn-do-login">Log in</button>
-      <p class="muted small mt">Demo user: demo@transmed.io / demo123 · Admin: admin@transmed.io / admin123</p>
+      <label data-i18n="email">Email</label>
+      <input id="login-email" type="email" placeholder="demo@transmed.io" autocomplete="email" />
+      <label data-i18n="password">Password</label>
+      <input id="login-password" type="password" placeholder="demo123" autocomplete="current-password" />
+      <button class="btn btn-primary btn-block mt" id="btn-do-login" data-i18n="do_login">Log in</button>
+      <p class="muted small mt center" data-i18n="demo_hint">Demo: demo@transmed.io / demo123 · Admin: admin@transmed.io / admin123</p>
     </div>
     <div id="tab-register" class="tab-panel hidden">
-      <label>Full name</label><input id="reg-name" type="text" placeholder="John Smith" />
-      <label>Email</label><input id="reg-email" type="email" placeholder="john@example.com" />
-      <label>Password (min 6 chars)</label><input id="reg-password" type="password" placeholder="••••••" />
-      <label>Preferred language</label>
+      <label data-i18n="fullname">Full name</label><input id="reg-name" type="text" placeholder="John Smith" />
+      <label data-i18n="email">Email</label><input id="reg-email" type="email" placeholder="john@example.com" autocomplete="email" />
+      <label data-i18n="password_min">Password (min 6 chars)</label><input id="reg-password" type="password" placeholder="••••••" autocomplete="new-password" />
+      <label data-i18n="pref_lang">Preferred language</label>
       <select id="reg-language">
-        <option value="en">English</option>
-        <option value="zh">中文</option>
-        <option value="ja">日本語</option>
-        <option value="ko">한국어</option>
-        <option value="fr">Français</option>
-        <option value="de">Deutsch</option>
+        <option value="en">English</option><option value="zh">中文</option>
+        <option value="ja">日本語</option><option value="ko">한국어</option>
+        <option value="fr">Français</option><option value="de">Deutsch</option>
+        <option value="es">Español</option><option value="ru">Русский</option>
       </select>
-      <label>Country</label><input id="reg-country" type="text" placeholder="e.g. United Kingdom" />
-      <button class="btn btn-primary" id="btn-do-register">Create my account</button>
+      <label data-i18n="country">Country</label><input id="reg-country" type="text" placeholder="e.g. United Kingdom" />
+      <button class="btn btn-primary btn-block mt" id="btn-do-register" data-i18n="create_account">Create my account</button>
     </div>
     <p id="auth-message" class="muted small mt center"></p>
   </div>
@@ -72,203 +91,287 @@
 
 <main id="main">
 
-  <!-- 首页 -->
+  <!-- ==================== HOME ==================== -->
   <section class="view view-home active" data-view="home">
     <div class="hero">
-      <h2>Your cross-cultural medical journey, made simple</h2>
-      <p>From AI multilingual translation with confidence scoring, to smart hospital recommendation, outdoor map navigation, medication reminders and real hospital ratings — TransMed keeps you in control of every step.</p>
-      <div class="hero-actions">
-        <button class="btn btn-primary" data-go="translate">Start translating</button>
-        <button class="btn" data-go="hospitals">Find a hospital</button>
-        <button class="btn" data-go="profile">My account</button>
+      <div class="hero-bg">
+        <div class="hero-blob b1"></div><div class="hero-blob b2"></div><div class="hero-blob b3"></div>
+      </div>
+      <div class="hero-inner">
+        <div class="eyebrow" data-i18n="hero_eyebrow">AI medical companion for foreigners in China</div>
+        <h1><span data-i18n="hero_title_a">Get care in China</span> <span class="ink-accent" data-i18n="hero_title_b">without the language barrier.</span></h1>
+        <p class="lead" data-i18n="hero_lead">Medical-grade multilingual translation with confidence scoring, symptom-based hospital matching, and real in-map navigation to the right department — all in one calm, trustworthy place.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" data-go="translate" data-i18n="hero_cta_translate">Start translating</button>
+          <button class="btn btn-ghost" data-go="hospitals" data-i18n="hero_cta_hospital">Find the right hospital</button>
+        </div>
+        <div class="trust-row">
+          <div class="trust-item"><span class="dot"></span> <span data-i18n="trust_langs">12 languages</span></div>
+          <div class="trust-item"><span class="dot"></span> <span data-i18n="trust_data">Real Beijing hospital data</span></div>
+          <div class="trust-item"><span class="dot"></span> <span data-i18n="trust_privacy">Privacy by design</span></div>
+        </div>
       </div>
     </div>
-    <div class="features">
-      <div class="feature"><div class="f-title">🎯 AI Medical Translation</div><p>Vertical medical-domain engine with ICD/ATC term alignment. Built-in confidence score with 4-level risk alerts.</p></div>
-      <div class="feature"><div class="f-title">🏥 Hospital Recommendation</div><p>Symptom-based ranking across specialties, accepted insurances, wait time and travel distance.</p></div>
-      <div class="feature"><div class="f-title">💊 Medication Reminders</div><p>Personalized schedules with warnings, side effects and drug interaction info.</p></div>
-      <div class="feature"><div class="f-title">🔒 Privacy by Design</div><p>Data minimization. Anonymized sessions. One-click export or wipe of your personal records.</p></div>
+
+    <div class="section">
+      <div class="section-head reveal">
+        <div class="eyebrow" data-i18n="feat_eyebrow">What TransMed does</div>
+        <h2 class="display" data-i18n="feat_title">Four steps of a medical visit, handled.</h2>
+        <p data-i18n="feat_sub">From describing your symptoms to standing in the right department — each step is designed to remove friction and uncertainty.</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card reveal d1">
+          <div class="feature-ico">🩺</div>
+          <h3 data-i18n="feat1_t">AI medical translation</h3>
+          <p data-i18n="feat1_d">Vertical medical model with term alignment, a confidence score and 4-level risk alerts so nothing critical is lost in translation.</p>
+        </div>
+        <div class="feature-card teal reveal d2">
+          <div class="feature-ico">🧭</div>
+          <h3 data-i18n="feat2_t">Smart hospital matching</h3>
+          <p data-i18n="feat2_d">Describe your symptoms; TransMed triages to a department and ranks real hospitals by specialty fit, rating and distance — with reasons.</p>
+        </div>
+        <div class="feature-card reveal d3">
+          <div class="feature-ico">🗺️</div>
+          <h3 data-i18n="feat3_t">In-map navigation</h3>
+          <p data-i18n="feat3_d">A drawn route and turn-by-turn directions on a live map, plus one tap to hand off to Apple, Google, AMap or Baidu Maps.</p>
+        </div>
+        <div class="feature-card teal reveal d4">
+          <div class="feature-ico">💊</div>
+          <h3 data-i18n="feat4_t">Medication & privacy</h3>
+          <p data-i18n="feat4_d">A bilingual drug library with reminders, and a privacy center to export or wipe your personal records anytime.</p>
+        </div>
+      </div>
     </div>
-    <div class="stats" id="home-stats"></div>
+
+    <div class="section">
+      <div class="section-head reveal">
+        <div class="eyebrow" data-i18n="how_eyebrow">How it works</div>
+        <h2 class="display" data-i18n="how_title">From symptom to seen.</h2>
+      </div>
+      <div class="steps">
+        <div class="step reveal d1"><h4 data-i18n="how1_t">Describe it</h4><p data-i18n="how1_d">Type symptoms in your language. Get a clean medical translation with risk level.</p></div>
+        <div class="step reveal d2"><h4 data-i18n="how2_t">Get triaged</h4><p data-i18n="how2_d">TransMed identifies the right department and flags urgent cases.</p></div>
+        <div class="step reveal d3"><h4 data-i18n="how3_t">Pick a hospital</h4><p data-i18n="how3_d">Compare ranked hospitals with real ratings, reviews and travel distance.</p></div>
+        <div class="step reveal d4"><h4 data-i18n="how4_t">Navigate there</h4><p data-i18n="how4_d">Follow the drawn route, or hand off to your favourite maps app.</p></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head reveal"><div class="eyebrow" data-i18n="stats_eyebrow">Live platform</div><h2 class="display" data-i18n="stats_title">Grounded in real data.</h2></div>
+      <div class="stats reveal d1" id="home-stats"></div>
+    </div>
   </section>
 
-  <!-- 翻译 -->
+  <!-- ==================== TRANSLATE ==================== -->
   <section class="view" data-view="translate">
-    <h2>AI Medical Translation</h2>
-    <p class="muted">Vertical medical model. Each translation is saved with its confidence score and can be user-confirmed to close the safety loop.</p>
-    <div class="translate-box">
-      <div class="lang-row">
-        <label>From <select id="src-lang"></select></label>
-        <button id="swap-lang" title="Swap">⇄</button>
-        <label>To <select id="tgt-lang"></select></label>
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="tr_eyebrow">Translation</div>
+      <h2 class="display" data-i18n="tr_title">AI medical translation</h2>
+      <p class="lede" data-i18n="tr_lede">A vertical medical engine. Every translation is scored for confidence and risk, with the medical terms it recognised highlighted.</p>
+    </div>
+
+    <div class="panel">
+      <div class="lang-bar">
+        <label><span data-i18n="tr_from">From</span> <select id="src-lang"></select></label>
+        <button id="swap-lang" title="Swap languages">⇄</button>
+        <label><span data-i18n="tr_to">To</span> <select id="tgt-lang"></select></label>
       </div>
-      <div class="translate-cols">
+      <div class="translate-grid">
         <div class="col">
-          <textarea id="src-text" placeholder="Describe symptoms or what the doctor said...">I have a headache and fever since 3 days ago.</textarea>
+          <textarea id="src-text" data-i18n-ph="tr_src_ph" placeholder="Describe symptoms, or paste what the doctor said…">I have a headache and fever since 3 days ago.</textarea>
           <div class="row-between">
-            <span class="muted small">Tip: be specific about duration, intensity and allergies.</span>
-            <button class="btn btn-primary" id="btn-translate">Translate</button>
+            <span class="muted small" data-i18n="tr_tip">Tip: be specific about duration, intensity and allergies.</span>
+            <button class="btn btn-primary" id="btn-translate" data-i18n="tr_btn">Translate</button>
           </div>
         </div>
         <div class="col">
-          <div id="tgt-text" class="translated-area">Translation will appear here.</div>
+          <div id="tgt-text" class="translated-area placeholder" data-i18n="tr_result_ph">Translation will appear here.</div>
           <div id="confidence-bar" class="confidence hidden">
-            <div id="engine-label" class="engine-label hidden" style="margin-bottom:8px;padding:6px 10px;border-radius:6px;font-size:13px;display:inline-block;">—</div>
-            <div class="confidence-label">Confidence: <b id="conf-value">—</b>% · Risk: <b id="risk-value">—</b></div>
-            <div class="confidence-track"><div class="confidence-fill" id="conf-fill" style="width:0%"></div></div>
+            <div id="engine-label" class="engine-label hidden">—</div>
+            <div class="confidence-label"><span data-i18n="tr_confidence">Confidence</span>: <b id="conf-value">—</b>% · <span data-i18n="tr_risk">Risk</span>: <b id="risk-value">—</b></div>
+            <div class="confidence-track"><div class="confidence-fill" id="conf-fill"></div></div>
             <div class="confidence-advice" id="conf-advice"></div>
             <div class="matched-terms" id="matched-terms"></div>
             <div id="rag-reference"></div>
-            <button id="btn-confirm-risk" class="btn btn-warn hidden">I acknowledge the risk alert</button>
+            <button id="btn-confirm-risk" class="btn btn-warn btn-sm hidden mt" data-i18n="tr_ack">I acknowledge the risk alert</button>
           </div>
         </div>
       </div>
     </div>
 
-    <h3>Quick symptom templates</h3>
+    <h3 data-i18n="tr_templates">Quick symptom templates</h3>
     <div class="chips" id="symptom-chips"></div>
 
-    <h3>My recent translations <span class="muted small">(requires login)</span></h3>
-    <div id="my-translations" class="med-list">
-      <p class="muted">None yet or not signed in.</p>
-    </div>
+    <h3><span data-i18n="tr_my_recent">My recent translations</span> <span class="muted small" data-i18n="tr_signin_save">(sign in to save)</span></h3>
+    <div id="my-translations" class="list"></div>
   </section>
 
-  <!-- 分诊 & 医院 -->
+  <!-- ==================== HOSPITALS ==================== -->
   <section class="view" data-view="hospitals">
-    <h2>Smart Triage & Hospital Finder</h2>
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="hp_eyebrow">Triage & hospitals</div>
+      <h2 class="display" data-i18n="hp_title">Find the right hospital</h2>
+      <p class="lede" data-i18n="hp_lede">Describe your symptoms — TransMed triages you to a department and ranks real hospitals by how well they fit, telling you why.</p>
+    </div>
 
-    <div class="triage-card">
-      <div class="row">
-        <label>Describe your symptoms:</label>
-        <input id="triage-input" type="text" placeholder="e.g. persistent headache and high fever for 2 days" />
+    <div class="finder-card">
+      <div class="finder-grid">
+        <div class="field">
+          <label data-i18n="hp_sym_label">Describe your symptoms</label>
+          <input id="triage-input" type="text" data-i18n-ph="hp_sym_ph" placeholder="e.g. persistent headache and high fever for 2 days" />
+        </div>
+        <div class="field">
+          <label data-i18n="hp_dept_label">Department (optional)</label>
+          <select id="specialty-filter">
+            <option value="" data-i18n="hp_dept_auto">Auto-detect</option>
+            <option>Cardiology</option><option>Neurology</option><option>Pediatrics</option>
+            <option>Obstetrics &amp; Gynecology</option><option>Orthopedics</option><option>Dental</option>
+            <option>Dermatology</option><option>Emergency</option><option>ENT</option>
+            <option>Ophthalmology</option><option>Oncology</option><option>General Medicine</option>
+          </select>
+        </div>
       </div>
-      <div class="row">
-        <label>Department / Specialty:</label>
-        <select id="specialty-filter">
-          <option value="">All</option>
-          <option>Cardiology</option>
-          <option>Neurology</option>
-          <option>Pediatrics</option>
-          <option>Obstetrics & Gynecology</option>
-          <option>Orthopedics</option>
-          <option>Dental</option>
-          <option>Dermatology</option>
-          <option>Emergency</option>
-          <option>General Medicine</option>
-        </select>
+      <div class="row mt">
+        <button class="btn btn-primary" id="btn-triage" data-i18n="hp_analyze">Analyze &amp; recommend</button>
+        <button class="btn btn-ghost btn-sm" id="btn-use-location" data-i18n="hp_use_loc">📍 Use my location for distance</button>
       </div>
-      <button class="btn btn-primary" id="btn-triage">Analyze & Recommend</button>
-      <div class="row sort-row">
-        <label>Sort by:</label>
-        <label class="sort-option"><input type="radio" name="sort" id="sort-rating" checked /> Rating</label>
-        <label class="sort-option"><input type="radio" name="sort" id="sort-wait" /> Wait time</label>
-        <label class="sort-option"><input type="radio" name="sort" id="sort-distance" /> Distance</label>
+      <div class="sort-row">
+        <span data-i18n="hp_sort_by">Sort by</span>
+        <div class="seg" id="sort-seg">
+          <button data-sort="match" class="active" data-i18n="hp_sort_match">Best match</button>
+          <button data-sort="rating" data-i18n="hp_sort_rating">Rating</button>
+          <button data-sort="distance" data-i18n="hp_sort_distance">Distance</button>
+        </div>
       </div>
     </div>
 
-    <div id="triage-result" class="triage-result hidden"></div>
-
+    <div id="triage-result" class="hidden"></div>
     <div id="hospital-list" class="hospital-list"></div>
   </section>
 
-  <!-- 医院导航（内置高德地图） -->
+  <!-- ==================== NAVIGATION ==================== -->
   <section class="view" data-view="navigation">
-    <h2>Hospital Navigation / 医院导航</h2>
-    <p class="muted">Select a hospital to see it on the map. 选择医院后在下方地图查看路线。</p>
-    <div class="row">
-      <label>Hospital:</label>
-      <select id="nav-hospital"></select>
-      <label>Mode:</label>
-      <select id="nav-mode">
-        <option value="walking">Walking / 步行</option>
-        <option value="driving">Driving / 驾车</option>
-        <option value="transit">Transit / 公交</option>
-      </select>
-      <button class="btn btn-light" id="nav-locate">Use my location / 使用我的位置</button>
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="nv_eyebrow">Navigation</div>
+      <h2 class="display" data-i18n="nv_title">Navigate to care</h2>
+      <p class="lede" data-i18n="nv_lede">See the drawn route and turn-by-turn directions on a live map — or hand off to your phone's maps app in one tap.</p>
     </div>
-    <div class="card nav-info">
-      <span id="nav-origin" class="muted small">📍 Origin / 起点：(116.4074, 39.9042) 默认北京 · 点击上方按钮获取当前位置</span>
+
+    <div class="panel">
+      <div class="nav-controls">
+        <div class="field">
+          <label data-i18n="nv_hospital">Hospital</label>
+          <select id="nav-hospital"></select>
+        </div>
+        <div class="field" style="max-width:200px;">
+          <label data-i18n="nv_mode">Mode</label>
+          <select id="nav-mode">
+            <option value="walking" data-i18n="nv_walking">🚶 Walking</option>
+            <option value="driving" data-i18n="nv_driving">🚗 Driving</option>
+            <option value="transit" data-i18n="nv_transit">🚇 Transit</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost" id="nav-locate" data-i18n="nv_use_loc">📍 Use my location</button>
+      </div>
+      <div class="muted small mt" id="nav-origin"></div>
+
+      <div class="nav-summary" id="nav-summary"></div>
+      <div class="map-frame">
+        <div id="nav-map"><div class="map-empty"><div class="big">🗺️</div><div data-i18n="nv_map_loading">Loading map…</div></div></div>
+      </div>
+      <div class="handoff-row" id="nav-handoff"></div>
+      <div class="route-steps" id="nav-route"></div>
     </div>
-    <div id="nav-output-cards" style="margin-top:14px;"></div>
-    <div id="nav-map" style="width:100%; height:420px; margin-top:14px; border:1px solid #e5e7eb; border-radius:8px; background:#f3f4f6;"></div>
-    <div id="nav-route" style="margin-top:14px;"></div>
   </section>
 
-  <!-- 用药提醒 -->
+  <!-- ==================== MEDICATION ==================== -->
   <section class="view" data-view="medication">
-    <h2>Medication & Reminders</h2>
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="md_eyebrow">Medication</div>
+      <h2 class="display" data-i18n="md_title">Medication & reminders</h2>
+      <p class="lede" data-i18n="md_lede">Look up a drug in the bilingual library, then save it with reminder times to your personal list.</p>
+    </div>
+
     <div class="med-grid">
       <div class="card">
-        <h3>Add a medication</h3>
-        <label>From library (optional)</label>
+        <h3 style="margin-top:0;" data-i18n="md_add">Add a medication</h3>
+        <label data-i18n="md_from_lib">From library</label>
         <select id="med-picker"></select>
-        <label>Or custom name</label>
-        <input id="med-custom" type="text" placeholder="e.g. Vitamin D" />
-        <label>Dosage / instructions</label>
-        <input id="med-dosage" type="text" placeholder="e.g. 1 tablet each morning" />
-        <label>Reminder times</label>
+        <label data-i18n="md_custom">Or custom name</label>
+        <input id="med-custom" type="text" data-i18n-ph="md_custom_ph" placeholder="e.g. Vitamin D" />
+        <label data-i18n="md_dosage">Dosage / instructions</label>
+        <input id="med-dosage" type="text" data-i18n-ph="md_dosage_ph" placeholder="e.g. 1 tablet each morning" />
+        <label data-i18n="md_times">Reminder times</label>
         <input id="med-times" type="text" placeholder="08:00, 20:00" />
-        <label>Notes</label>
-        <textarea id="med-notes" placeholder="After meals, keep away from dairy..."></textarea>
-        <button class="btn btn-primary" id="btn-add-med">Save to my list</button>
-        <p class="muted small mt">Requires login. Your records are stored encrypted on our server.</p>
+        <label data-i18n="md_notes">Notes</label>
+        <textarea id="med-notes" data-i18n-ph="md_notes_ph" placeholder="After meals, keep away from dairy…"></textarea>
+        <button class="btn btn-primary btn-block mt" id="btn-add-med" data-i18n="md_save">Save to my list</button>
+        <p class="muted small mt" data-i18n="md_login_req">Requires login. Stored against your account.</p>
       </div>
       <div class="card">
-        <h3>Drug information</h3>
+        <h3 style="margin-top:0;" data-i18n="md_drug_info">Drug information</h3>
         <div id="med-info"></div>
       </div>
     </div>
-    <h3>My medication list</h3>
-    <div id="med-list" class="med-list">
-      <p class="muted">Not signed in or no medication yet.</p>
-    </div>
+
+    <h3 data-i18n="md_my_list">My medication list</h3>
+    <div id="med-list" class="list"></div>
   </section>
 
-  <!-- 隐私 -->
-  <section class="view" data-view="privacy">
-    <h2>Privacy Center</h2>
-    <p class="muted">TransMed uses a privacy-by-design architecture. Your identity is optional; sensitive medical text is processed with minimal retention.</p>
-    <div id="privacy-policy" class="card"></div>
-    <h3>Your records</h3>
-    <div class="row">
-      <button class="btn" id="btn-export">Export all my data (JSON)</button>
-      <button class="btn btn-danger" id="btn-wipe">Delete all personal records</button>
+  <!-- ==================== ACCOUNT ==================== -->
+  <section class="view" data-view="account">
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="ac_eyebrow">Your account</div>
+      <h2 class="display" data-i18n="ac_title">Account & privacy</h2>
+      <p class="lede" data-i18n="ac_lede">Your identity is optional. Sensitive medical text is processed with minimal retention — and you can export or wipe everything anytime.</p>
     </div>
-    <pre id="export-box" class="export-box hidden"></pre>
-    <h3>Feedback</h3>
+
+    <div id="profile-body" class="card"></div>
+
+    <h3 data-i18n="ac_your_data">Your data</h3>
     <div class="card">
-      <label>Category</label>
-      <select id="fb-category">
-        <option>translation</option>
-        <option>hospital</option>
-        <option>medication</option>
-        <option>feature request</option>
-        <option>other</option>
-      </select>
-      <label>Rating (1-5)</label>
-      <input id="fb-rating" type="number" min="1" max="5" value="5" />
-      <label>Your message</label>
-      <textarea id="fb-content" placeholder="Tell us how we can improve..."></textarea>
-      <button class="btn btn-primary" id="btn-send-feedback">Submit feedback</button>
-      <p id="fb-status" class="muted small mt"></p>
+      <p class="muted small" style="margin-top:0;" data-i18n="ac_data_desc">Export a full JSON copy of everything tied to your account, or permanently delete your personal records (your login is kept).</p>
+      <div class="row">
+        <button class="btn btn-ghost" id="btn-export" data-i18n="ac_export">⬇︎ Export all my data</button>
+        <button class="btn btn-danger" id="btn-wipe" data-i18n="ac_wipe">🗑 Delete all personal records</button>
+      </div>
+      <pre id="export-box" class="export-box hidden"></pre>
     </div>
-  </section>
 
-  <!-- 个人中心 -->
-  <section class="view" data-view="profile">
-    <h2>My Account</h2>
-    <div id="profile-body">
-      <p class="muted">Log in to see your profile, medication and saved translations.</p>
-      <button class="btn btn-primary" id="btn-profile-login">Log in / Register</button>
+    <h3 data-i18n="ac_feedback">Feedback</h3>
+    <div class="card">
+      <div class="finder-grid">
+        <div class="field">
+          <label data-i18n="ac_category">Category</label>
+          <select id="fb-category">
+            <option value="translation" data-i18n="ac_cat_translation">translation</option>
+            <option value="hospital" data-i18n="ac_cat_hospital">hospital</option>
+            <option value="navigation" data-i18n="ac_cat_navigation">navigation</option>
+            <option value="medication" data-i18n="ac_cat_medication">medication</option>
+            <option value="feature request" data-i18n="ac_cat_feature">feature request</option>
+            <option value="other" data-i18n="ac_cat_other">other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label data-i18n="ac_rating">Rating (1–5)</label>
+          <input id="fb-rating" type="number" min="1" max="5" value="5" />
+        </div>
+      </div>
+      <label data-i18n="ac_your_msg">Your message</label>
+      <textarea id="fb-content" data-i18n-ph="ac_msg_ph" placeholder="Tell us how we can improve…"></textarea>
+      <button class="btn btn-primary mt" id="btn-send-feedback" data-i18n="ac_submit">Submit feedback</button>
+      <p id="fb-status" class="muted small mt"></p>
     </div>
   </section>
 
 </main>
 
 <footer class="footer">
-  TransMed · AI for cross-cultural healthcare · For demonstration purposes only. Critical medical decisions must be confirmed with licensed physicians.
+  <span data-i18n="footer_a">TransMed · AI for cross-cultural healthcare — for demonstration only. In an emergency call 120 or go to the nearest ER.</span>
+  <span data-i18n="footer_b">Critical decisions must be confirmed with a licensed physician.</span>
 </footer>
+
+<div class="toast-host" id="toast-host"></div>
 
 <script src="app.js"></script>
 </body>

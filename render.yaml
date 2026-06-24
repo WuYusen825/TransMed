@@ -21,3 +21,10 @@ services:
         value: https://api.groq.com/openai/v1
       - key: TRANSMED_JWT_SECRET
         generateValue: true  # Render 自动生成随机密钥，不暴露给任何人
+      # —— 高德地图（在 Render 控制台填入真实值；sync:false 表示不写进仓库）——
+      - key: TRANSMED_AMAP_KEY
+        sync: false          # 「Web 服务」类型 Key（后端 REST：医院搜索/地理编码）
+      - key: TRANSMED_AMAP_JS_KEY
+        sync: false          # 「Web 端 (JS API)」类型 Key（前端地图）
+      - key: TRANSMED_AMAP_SECURITY_JS_CODE
+        sync: false          # 与 JS Key 配套的「安全密钥」，启用页面内路线规划（必填才能画线）

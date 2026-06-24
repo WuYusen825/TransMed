@@ -53,8 +53,15 @@ class Settings:
     # 申请地址：https://console.amap.com/dev/key/app
     # 在一个应用下可以添加两个 Key：一个「Web 服务」，一个「Web 端」。
     # 如果把 JS API 的 key 当作 Web 服务 key，会收到：USERKEY_PLAT_NOMATCH (infocode=10009)
-    AMAP_WEB_KEY: str = os.environ.get("TRANSMED_AMAP_KEY", "bdbaa3cb0db2e16f98321b7c9a10a52e")
-    AMAP_JS_KEY: str = os.environ.get("TRANSMED_AMAP_JS_KEY", "81d33fbdcf7d450c41c8bbb817fd959e")
+    # 不再硬编码 Key（已迁至 Render 环境变量）。本地开发请 export 对应变量，或写入 .env。
+    AMAP_WEB_KEY: str = os.environ.get("TRANSMED_AMAP_KEY", "")
+    AMAP_JS_KEY: str = os.environ.get("TRANSMED_AMAP_JS_KEY", "")
+    # 安全密钥（securityJsCode）：高德 JS API 2.0 自 2021-12-02 起，新建的 JS Key
+    # 必须配套一个「安全密钥」才能调用 路线规划 / 定位 服务（Walking/Driving/Transfer）。
+    # 不配它，前端地图只能显示起点/终点两个标记，画不出路线（这正是导航"只看到两个点"的根因）。
+    # 申请：高德控制台 → 应用管理 → 你的「Web端(JS API)」Key → 生成配套「安全密钥」。
+    # 通过环境变量 TRANSMED_AMAP_SECURITY_JS_CODE 设置；为空时前端自动回退到「外部地图App + 文字路线」。
+    AMAP_SECURITY_JS_CODE: str = os.environ.get("TRANSMED_AMAP_SECURITY_JS_CODE", "")
 
     # ——— WHO ICD-11 API（权威疾病分类术语库，官方多语含中文）———
     # 免费，但需注册获取 OAuth2 凭据：
