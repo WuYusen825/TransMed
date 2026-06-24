@@ -148,6 +148,97 @@ def _mesh_search(query: str) -> List[Dict]:
     return results
 
 
+# ── WHO ICD-11 API (authoritative disease classification, multilingual incl. zh) ──
+# OAuth2 client-credentials flow. Token cached ~1h. Requires client_id/secret
+# from https://icd.who.int/icdapi — when absent, ICD lookups are skipped silently.
+_ICD_TOKEN: Dict[str, object] = {"value": None, "exp": 0.0}
+_HTML_TAG = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    """ICD-11 search titles wrap the match in <em class='found'>…</em>."""
+    return _HTML_TAG.sub("", text or "").strip()
+
+
+def _icd_token() -> Optional[str]:
+    """Fetch & cache an ICD-11 OAuth2 access token (valid ~1 hour)."""
+    from .config import settings
+
+    cid = settings.ICD_CLIENT_ID
+    secret = settings.ICD_CLIENT_SECRET
+    if not cid or not secret:
+        return None
+
+    now = time.time()
+    tok = _ICD_TOKEN.get("value")
+    if tok and now < float(_ICD_TOKEN.get("exp", 0.0)):
+        return tok  # type: ignore[return-value]
+
+    try:
+        import requests
+        resp = requests.post(
+            settings.ICD_TOKEN_URL,
+            data={
+                "client_id": cid,
+                "client_secret": secret,
+                "scope": "icdapi_access",
+                "grant_type": "client_credentials",
+            },
+            timeout=_API_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            token = data.get("access_token")
+            expires_in = int(data.get("expires_in", 3600))
+            _ICD_TOKEN["value"] = token
+            _ICD_TOKEN["exp"] = now + expires_in - 60  # refresh 60s early
+            return token
+        logger.debug("ICD token HTTP %s: %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        logger.debug("ICD token request failed: %s", exc)
+    return None
+
+
+def _icd_search(query: str, lang: str = "zh") -> List[Dict]:
+    """Search WHO ICD-11 for disease titles + ICD-11 codes in `lang` (zh/en)."""
+    cache_key = f"icd:{lang}:{query.lower()[:80]}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    token = _icd_token()
+    if not token:
+        return []
+
+    results: List[Dict] = []
+    try:
+        import requests
+        from .config import settings
+        resp = requests.get(
+            f"{settings.ICD_BASE_URL}/icd/entity/search",
+            params={"q": query, "flatResults": "true"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "Accept-Language": lang,
+                "API-Version": "v2",
+            },
+            timeout=_API_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            entities = resp.json().get("destinationEntities", []) or []
+            for e in entities[:4]:
+                title = _strip_html(e.get("title", ""))
+                code = e.get("theCode", "") or ""
+                if title:
+                    results.append({"title": title, "code": code})
+    except Exception as exc:
+        logger.debug("ICD search failed for '%s': %s", query, exc)
+
+    _cache_set(cache_key, results)
+    return results
+
+
 # ── Public retrieval function ──────────────────────────────────────────────────
 _EN_TOKEN = re.compile(r"[A-Za-z][A-Za-z\-']{2,}")
 
@@ -168,6 +259,14 @@ def retrieve_via_api(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
 
     # Unique English tokens (order-preserved)
     en_tokens = list(dict.fromkeys(t.lower() for t in _EN_TOKEN.findall(query)))
+
+    # 0. WHO ICD-11 (authoritative disease classification, zh+en, highest priority)
+    icd_zh = {d["code"]: d["title"] for d in _icd_search(query, lang="zh") if d["code"]}
+    icd_en = {d["code"]: d["title"] for d in _icd_search(query, lang="en") if d["code"]}
+    for code in list(dict.fromkeys(list(icd_en.keys()) + list(icd_zh.keys())))[:3]:
+        parts = [p for p in (icd_zh.get(code, ""), icd_en.get(code, "")) if p]
+        if parts:
+            results.append((f"[ICD-11疾病] {' / '.join(parts)} (ICD-11: {code})", 4.0))
 
     # 1. RxNorm: try the query itself then individual long tokens
     tried_rx: set = set()
@@ -218,4 +317,6 @@ def retrieve_via_api(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
             seen.add(k)
             deduped.append((content, score))
 
+    # Highest-authority sources (ICD-11 4.0 > RxNorm 3.0 > MeSH) float to the top
+    deduped.sort(key=lambda x: x[1], reverse=True)
     return deduped[:top_k]

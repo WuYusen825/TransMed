@@ -56,5 +56,19 @@ class Settings:
     AMAP_WEB_KEY: str = os.environ.get("TRANSMED_AMAP_KEY", "bdbaa3cb0db2e16f98321b7c9a10a52e")
     AMAP_JS_KEY: str = os.environ.get("TRANSMED_AMAP_JS_KEY", "81d33fbdcf7d450c41c8bbb817fd959e")
 
+    # ——— WHO ICD-11 API（权威疾病分类术语库，官方多语含中文）———
+    # 免费，但需注册获取 OAuth2 凭据：
+    #   1) 访问 https://icd.who.int/icdapi 注册并登录
+    #   2) 点击 "View API access key" 获取 Client Id / Client Secret
+    #   3) 把两者填入下面两个环境变量（本地 .env 或 Render env）
+    # 未配置时 ICD-11 检索自动跳过，RAG 退回 RxNorm + MeSH，不会报错。
+    ICD_CLIENT_ID: str = os.environ.get("TRANSMED_ICD_CLIENT_ID", "")
+    ICD_CLIENT_SECRET: str = os.environ.get("TRANSMED_ICD_CLIENT_SECRET", "")
+    ICD_TOKEN_URL: str = os.environ.get(
+        "TRANSMED_ICD_TOKEN_URL",
+        "https://icdaccessmanagement.who.int/connect/token",
+    )
+    ICD_BASE_URL: str = os.environ.get("TRANSMED_ICD_BASE_URL", "https://id.who.int")
+
 
 settings = Settings()

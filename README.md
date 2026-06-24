@@ -253,6 +253,10 @@ curl -X POST http://127.0.0.1:8000/api/translate \
 | `TRANSMED_JWT_SECRET` | `transmed-dev-secret-change-me` | **必须改为强随机字符串** |
 | `TRANSMED_ADMIN_EMAIL` | `admin@transmed.io` | 初始管理员邮箱 |
 | `TRANSMED_ADMIN_PASSWORD` | `admin123` | 初始管理员密码（**首次登录后立即修改**） |
+| `TRANSMED_ICD_CLIENT_ID` | （空） | WHO ICD-11 API Client Id，[icd.who.int/icdapi](https://icd.who.int/icdapi) 注册后获取；留空则 RAG 仅用 RxNorm+MeSH |
+| `TRANSMED_ICD_CLIENT_SECRET` | （空） | WHO ICD-11 API Client Secret（与上面配套） |
+
+> **术语库 RAG 说明**：翻译的医学术语参考通过外部权威 API 实时检索——RxNorm（NIH，药品）+ NCBI MeSH（医学概念）默认即用、无需注册；配置 ICD-11 凭据后额外接入 WHO 官方疾病分类（中英对照、最高优先级）。所有结果内存缓存 1 小时。
 
 ### 使用 Gunicorn（推荐生产）
 
