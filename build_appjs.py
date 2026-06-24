@@ -131,7 +131,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     how3_t: 'Pick a hospital', how3_d: 'Compare ranked hospitals with real ratings, reviews and travel distance.',
     how4_t: 'Navigate there', how4_d: 'Follow the drawn route, or hand off to your favourite maps app.',
     stats_eyebrow: 'Live platform', stats_title: 'Grounded in real data.',
-    st_langs: 'Languages', st_terms: 'Medical terms', st_hosp: 'Hospitals', st_rules: 'Triage rules', st_trans: 'Translations served',
+    st_langs: 'Languages', st_terms: 'Term banks', st_hosp: 'Hospitals', st_rules: 'Triage rules', st_trans: 'Translations served',
     tr_eyebrow: 'Translation', tr_title: 'AI medical translation', tr_lede: 'A vertical medical engine. Every translation is scored for confidence and risk, with the medical terms it recognised highlighted.',
     tr_from: 'From', tr_to: 'To', tr_src_ph: 'Describe symptoms, or paste what the doctor said…', tr_tip: 'Tip: be specific about duration, intensity and allergies.',
     tr_btn: 'Translate', tr_translating: 'Translating…', tr_result_ph: 'Translation will appear here.', tr_confidence: 'Confidence', tr_risk: 'Risk',
@@ -201,7 +201,7 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
     how3_t: '挑选医院', how3_d: '对比按匹配度排序的医院——含真实评分、评价与路程距离。',
     how4_t: '导航前往', how4_d: '沿画出的路线前往，或一键交给你常用的地图 App。',
     stats_eyebrow: '实时平台', stats_title: '基于真实数据。',
-    st_langs: '语言', st_terms: '医学术语', st_hosp: '医院', st_rules: '分诊规则', st_trans: '累计翻译次数',
+    st_langs: '语言', st_terms: '权威术语库', st_hosp: '医院', st_rules: '分诊规则', st_trans: '累计翻译次数',
     tr_eyebrow: '翻译', tr_title: 'AI 医疗翻译', tr_lede: '垂直医疗引擎。每次翻译都给出置信度与风险评分，并高亮识别到的医学术语。',
     tr_from: '从', tr_to: '到', tr_src_ph: '描述症状，或粘贴医生说的话……', tr_tip: '提示：尽量写清持续时间、强度与过敏史。',
     tr_btn: '翻译', tr_translating: '翻译中…', tr_result_ph: '译文将显示在这里。', tr_confidence: '置信度', tr_risk: '风险',
@@ -603,8 +603,9 @@ JS = r'''/* TransMed frontend — light Claude theme + global i18n */
   }
   function renderStats(d, animate) {
     _lastStats = d; var box = byId('home-stats'); if (!box) return;
-    var cards = [{ v: 12, k: 'st_langs' }, { v: d.medical_terms || 2428, k: 'st_terms' }, { v: d.hospitals || 6, k: 'st_hosp' }, { v: d.triage_rules || 55, k: 'st_rules' }, { v: d.translations || 0, k: 'st_trans' }];
-    box.innerHTML = cards.map(function (c) { return '<div class="stat"><div class="stat-num" data-to="' + c.v + '">' + (animate === false ? c.v.toLocaleString() : '0') + '</div><div class="stat-label">' + t(c.k) + '</div></div>'; }).join('');
+    var _termSrc = (d.terminology_sources && d.terminology_sources.length) ? d.terminology_sources : ['WHO ICD-11', 'RxNorm (NIH)', 'NCBI MeSH'];
+    var cards = [{ v: 12, k: 'st_langs' }, { v: _termSrc.length, k: 'st_terms', sub: _termSrc.map(function (s) { return s.replace(/\s*\(.*?\)/, ''); }).join(' · ') }, { v: d.hospitals || 6, k: 'st_hosp' }, { v: d.triage_rules || 55, k: 'st_rules' }, { v: d.translations || 0, k: 'st_trans' }];
+    box.innerHTML = cards.map(function (c) { return '<div class="stat"><div class="stat-num" data-to="' + c.v + '">' + (animate === false ? c.v.toLocaleString() : '0') + '</div><div class="stat-label">' + t(c.k) + '</div>' + (c.sub ? '<div class="stat-sub muted" style="font-size:11px;margin-top:3px;line-height:1.3;">' + esc(c.sub) + '</div>' : '') + '</div>'; }).join('');
     if (animate === false) return;
     var run = function () { qsa('.stat-num', box).forEach(function (el) { animateCount(el, parseInt(el.getAttribute('data-to'), 10) || 0); }); };
     if ('IntersectionObserver' in window) { var ob = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { run(); ob.disconnect(); } }); }, { threshold: 0.3 }); ob.observe(box); } else run();

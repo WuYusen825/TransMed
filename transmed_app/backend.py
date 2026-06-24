@@ -45,12 +45,12 @@ from .auth import (hash_password, verify_password, create_jwt,
 from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
                    MEDICATIONS,
                    SYMPTOM_TO_SPECIALTIES, SPECIALTY_ALIASES, HOSPITAL_STRENGTH)
-from .corpus_medical import MEDICAL_CORPUS as _MEDICAL_CORPUS
 from . import reviews as _reviews
 from . import amap as _amap
 
-# 真实可检索的医学术语总量 = 基础词典(MEDICAL_TERMS) + ICD-10 专业语料(MEDICAL_CORPUS)
-TOTAL_MEDICAL_TERMS = len(MEDICAL_TERMS) + len(_MEDICAL_CORPUS)
+# 医学术语 RAG 检索改为实时调用外部权威 API（见 terminology_api.py），不再内嵌语料。
+# 以下为 RAG 覆盖的权威术语库来源；本地 MEDICAL_TERMS 词典仅用于翻译时的即时术语高亮 / 置信度估计。
+TERMINOLOGY_SOURCES = ["WHO ICD-11", "RxNorm (NIH)", "NCBI MeSH"]
 
 # ------------------------------------------------------------------ initialise DB
 models.Base.metadata.create_all(bind=engine)
@@ -103,7 +103,7 @@ class HealthOut(BaseModel):
     hospitals: int
     medications: int
     triage_rules: int
-    medical_terms: int
+    terminology_sources: List[str] = []
 
 
 class TranslateIn(BaseModel):
@@ -182,7 +182,7 @@ class StatsOut(BaseModel):
     hospitals: int
     medications: int
     triage_rules: int
-    medical_terms: int
+    terminology_sources: List[str] = []
     users: int
     translations: int
     urgent_events: int
@@ -270,7 +270,7 @@ def _hospital_to_out(h: dict) -> HospitalOut:
 @app.get("/health", response_model=HealthOut)
 def health():
     return HealthOut(hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-                     triage_rules=len(TRIAGE_RULES), medical_terms=TOTAL_MEDICAL_TERMS)
+                     triage_rules=len(TRIAGE_RULES), terminology_sources=TERMINOLOGY_SOURCES)
 
 
 # -------------------------------------------------------------- translate
@@ -1388,7 +1388,7 @@ def privacy_wipe(current_user=Depends(require_current_user), db=Depends(get_db))
 def stats(db=Depends(get_db)):
     return StatsOut(
         hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
-        triage_rules=len(TRIAGE_RULES), medical_terms=TOTAL_MEDICAL_TERMS,
+        triage_rules=len(TRIAGE_RULES), terminology_sources=TERMINOLOGY_SOURCES,
         users=db.query(models.User).count(),
         translations=db.query(models.TranslationLog).count(),
         urgent_events=db.query(models.TriageRecord).filter(models.TriageRecord.is_urgent == True).count(),
