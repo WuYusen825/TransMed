@@ -782,7 +782,7 @@
       Object.keys(scores).forEach(function (sp) { var strength = localHospitalStrength(h, sp); weighted += strength * scores[sp]; if (strength >= 40) matched.push(sp); if (strength === 100) leaders.push(sp); });
       var fit = weighted / totalWeight, emergency = localHospitalStrength(h, 'Emergency');
       var eligible = fit >= 40 && (!analysis.urgent || emergency >= 60);
-      var raw = fit * .55 + (leaders.length ? 12 : 0) + (/三级甲等|三甲/.test(h.grade || '') ? 8 : 0) + 4 + (analysis.urgent && emergency >= 60 ? 12 : 0);
+      var raw = fit * .55 + (leaders.length ? 12 : 0) + (/三级甲等|三甲/.test(h.grade || '') ? 8 : 0) + 4 + (curLang === 'zh' ? 6 : 0) + (analysis.urgent && emergency >= 60 ? 12 : 0);
       var score = Math.max(0, Math.min(100, raw * factor));
       var copy = Object.assign({}, h);
       copy.recommendation = { score: score, calibrated_score: score, match_level: score >= 70 ? 'high' : (score >= 50 ? 'moderate' : 'low'), eligible: eligible, matched_specialties: matched, leader_specialties: leaders, reasons: [], score_version: 'hospital-fit-v2.0-local' };
