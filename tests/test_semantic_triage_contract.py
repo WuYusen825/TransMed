@@ -5,12 +5,13 @@ import unittest
 from transmed_app.data import SPECIALTY_ALIASES
 from transmed_app.hospital_dataset import HOSPITALS_EXT
 from transmed_app.recommendation_engine import DEPARTMENT_ZH
-from transmed_app.semantic_triage import _literal_evidence
+from transmed_app.semantic_triage import _ALLOWED_SET, _DEPARTMENT_SCOPES, _literal_evidence
 
 
 class SemanticTriageContractTests(unittest.TestCase):
     def test_semantic_ontology_covers_all_canonical_specialties(self) -> None:
         self.assertEqual(set(SPECIALTY_ALIASES) - set(DEPARTMENT_ZH), set())
+        self.assertEqual(set(_DEPARTMENT_SCOPES), _ALLOWED_SET)
 
     def test_model_evidence_must_be_a_literal_source_span(self) -> None:
         source = "source-token"
