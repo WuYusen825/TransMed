@@ -313,7 +313,15 @@ def _demo_hospitals(city_zh: str, keyword: str, limit: int, amap_error: Optional
     """本地 demo 数据回退。"""
     kw = (keyword or "").strip()
     results: List[Dict[str, Any]] = []
+    known_cities = ("北京", "上海", "广州", "深圳", "成都", "武汉", "西安", "杭州", "南京", "长沙", "天津", "沈阳")
     for h in HOSPITALS:
+        explicit_city = _normalize_city(str(h.get("city") or "")) if h.get("city") else ""
+        location_text = " ".join((str(h.get("name_zh") or ""), str(h.get("address_zh") or "")))
+        inferred_city = next((candidate for candidate in known_cities if candidate in location_text), "")
+        if explicit_city and explicit_city != city_zh:
+            continue
+        if not explicit_city and inferred_city and inferred_city != city_zh:
+            continue
         if kw:
             hay = " ".join([
                 str(h.get("name", "")), str(h.get("name_zh", "")),
@@ -327,7 +335,8 @@ def _demo_hospitals(city_zh: str, keyword: str, limit: int, amap_error: Optional
             "address": h.get("address", ""), "address_zh": h.get("address_zh", ""),
             "phone": h.get("phone", ""), "hours": h.get("hours", ""),
             "rating": h.get("rating", 0),
-            "wait_minutes": h.get("wait_minutes", 0),
+            # No fallback source publishes real-time waiting data.
+            "wait_minutes": None,
             "distance_km": h.get("distance_km", 0),
             "specialties": h.get("specialties", []),
             "insurance": h.get("insurance", []),

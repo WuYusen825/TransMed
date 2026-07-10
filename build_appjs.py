@@ -14,6 +14,22 @@ JS 以 raw 字符串内嵌于此，运行后写入 transmed_web/app.js 与 docs/
     /api/translate 引擎实时翻译并缓存（失败回退英文）；导航转向步骤同理翻译。
 """
 import os
+from pathlib import Path
+
+# ``transmed_web/app.js`` is the single frontend source of truth.  Older
+# versions of this repository embedded another complete copy below, which made
+# it easy to regenerate and deploy a stale UI.  Keep the legacy payload for
+# historical diff readability, but stop before it can overwrite the canonical
+# file and only synchronize the GitHub Pages mirror.
+_root_path = Path(__file__).resolve().parent
+for _asset_name in ("app.js", "index.html", "style.css"):
+    _canonical_asset = _root_path / "transmed_web" / _asset_name
+    _docs_asset = _root_path / "docs" / _asset_name
+    if not _canonical_asset.exists():
+        raise SystemExit(f"missing canonical frontend: {_canonical_asset}")
+    _docs_asset.write_text(_canonical_asset.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"synced {_canonical_asset.relative_to(_root_path)} -> {_docs_asset.relative_to(_root_path)}")
+raise SystemExit(0)
 
 JS = r'''/* TransMed frontend — light Claude theme + global i18n */
 (function () {

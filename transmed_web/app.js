@@ -18,8 +18,8 @@
   /* ============================== API base ============================== */
   var metaApi = qs("meta[name='api-base']");
   var API = metaApi ? (metaApi.getAttribute('content') || '') : '';
-  if (!API && (location.protocol === 'file:' || /localhost|127\.0\.0\.1/.test(location.hostname))) {
-    API = 'http://127.0.0.1:8000';
+  if (/localhost|127\.0\.0\.1/.test(location.hostname)) {
+    API = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : location.origin;
   }
 
   /* ============================== session ============================== */
@@ -132,8 +132,9 @@
     hp_sort_by: 'Sort by', hp_sort_match: 'Best match', hp_sort_rating: 'Rating', hp_sort_distance: 'Distance',
     hp_loading: 'Loading hospitals…', hp_matching: 'Matching hospitals…', hp_describe_first: 'Describe your symptoms first', hp_loc_first: 'Tap “Use my location” first',
     hp_loc_added: 'Location set — distances added',
-    hp_urgent: '🚨 URGENT', hp_recommended: '✓ Recommended department', hp_call120: 'If this is an emergency, call 120 now.',
-    hp_best_match: '#{n} best match', hp_match_cap: 'match', hp_strong_in: 'Strong in {sp}', hp_national_leader: 'National leader in {sp}', hp_grade_3a: 'Class III-A (top tier)', hp_rated: 'Rated {r}/5', hp_reviews: '{n} reviews', hp_reviews_paren: '({n} reviews)',
+    hp_urgent: '🚨 URGENT', hp_recommended: '✓ Preliminary department', hp_call120: 'Call 120 or go to the nearest emergency department now. Do not delay care for a ranking.',
+    hp_best_match: '#{n} best match', hp_match_cap: 'fit', hp_strong_in: 'Verified in {sp}', hp_national_leader: 'National leader in {sp}', hp_grade_3a: 'Class III-A (top tier)', hp_rated: 'Rated {r}/5', hp_reviews: '{n} reviews', hp_reviews_paren: '({n} reviews)',
+    hp_triage_conf: 'Triage confidence {n}%', hp_need_more: 'More detail is needed before choosing a hospital.', hp_follow_up: 'Please add:', hp_preliminary: 'Preliminary guidance, not a diagnosis.',
     hp_km_you: '{km} km from you', hp_km: '{km} km', hp_speaks: 'Speaks your language', hp_emergency: 'Strong emergency services', hp_navigate: 'Navigate →',
     hp_no_hosp: 'No hospitals found. Try a broader symptom or department.', hp_waking_t: 'Recommendation service is waking up', hp_waking_d: 'Showing all hospitals meanwhile. Try again in a moment.',
     nv_eyebrow: 'Navigation', nv_title: 'Navigate to care', nv_lede: "See the drawn route and turn-by-turn directions on a live map — or hand off to your phone's maps app in one tap.",
@@ -202,8 +203,9 @@
     hp_sort_by: '排序', hp_sort_match: '最匹配', hp_sort_rating: '评分', hp_sort_distance: '距离',
     hp_loading: '加载医院中…', hp_matching: '匹配医院中…', hp_describe_first: '请先描述症状', hp_loc_first: '请先点“用我的位置”',
     hp_loc_added: '已定位——已加入距离',
-    hp_urgent: '🚨 紧急', hp_recommended: '✓ 推荐科室', hp_call120: '若为紧急情况，请立即拨打 120。',
-    hp_best_match: '#{n} 最匹配', hp_match_cap: '匹配', hp_strong_in: '{sp} 专科突出', hp_national_leader: '{sp} 全国领先', hp_grade_3a: '三级甲等', hp_rated: '评分 {r}/5', hp_reviews: '{n} 条评价', hp_reviews_paren: '（{n} 条评价）',
+    hp_urgent: '🚨 紧急', hp_recommended: '✓ 初步建议科室', hp_call120: '请立即拨打 120 或前往最近急诊，不要因医院排名延误就医。',
+    hp_best_match: '#{n} 最匹配', hp_match_cap: '可信匹配', hp_strong_in: '已核验 {sp} 能力', hp_national_leader: '{sp} 全国领先', hp_grade_3a: '三级甲等', hp_rated: '评分 {r}/5', hp_reviews: '{n} 条评价', hp_reviews_paren: '（{n} 条评价）',
+    hp_triage_conf: '分诊置信度 {n}%', hp_need_more: '当前信息不足，建议补充后再选择医院。', hp_follow_up: '请补充：', hp_preliminary: '仅为就医分流建议，不构成诊断。',
     hp_km_you: '距你 {km} 公里', hp_km: '{km} 公里', hp_speaks: '可用你的语言沟通', hp_emergency: '急诊能力强', hp_navigate: '导航 →',
     hp_no_hosp: '未找到医院。试试更宽泛的症状或科室。', hp_waking_t: '推荐服务正在唤醒', hp_waking_d: '同时先显示全部医院，请稍后重试。',
     nv_eyebrow: '导航', nv_title: '导航就医', nv_lede: '在实时地图上查看画出的路线与转向步骤——或一键交给手机地图 App。',
@@ -618,8 +620,11 @@
     var zh = (h.name_zh && h.name_zh !== h.name) ? '<span class="zh"> · ' + esc(h.name_zh) + '</span>' : '';
     var rating = num(h.rating), dist = (_userLoc && typeof h.lng === 'number') ? haversineKm(_userLoc, h) : null, ring = '';
     if (ranked && h.recommendation) {
-      var pct = maxScore ? Math.max(10, Math.min(100, Math.round(h.recommendation.score / maxScore * 100))) : 60;
-      ring = '<div class="score-ring" style="--p:' + pct + '"><div class="score-inner"><div class="score-val">' + pct + '</div><div class="score-cap">' + t('hp_match_cap') + '</div></div></div>';
+      var absolute = num(h.recommendation.calibrated_score);
+      if (absolute == null) absolute = num(h.recommendation.score);
+      var pct = Math.max(0, Math.min(100, Math.round(absolute == null ? 0 : absolute)));
+      var level = h.recommendation.match_level || (pct >= 70 ? 'high' : (pct >= 50 ? 'moderate' : 'low'));
+      ring = '<div class="score-ring score-' + esc(level) + '" style="--p:' + pct + '" title="' + esc(t('hp_preliminary')) + '"><div class="score-inner"><div class="score-val">' + pct + '</div><div class="score-cap">' + t('hp_match_cap') + '</div></div></div>';
     }
     var reasons = (ranked && h.recommendation) ? '<div class="match-reasons">' + cleanReasons(h.recommendation, h, dist).map(function (r) {
       return '<div class="reason ' + (r.type === 'spec' ? 'spec' : '') + '"><span class="tick">' + (r.type === 'spec' ? '◆' : '✓') + '</span><span>' + esc(r.text) + '</span></div>';
@@ -654,10 +659,16 @@
   function renderTriageBanner() {
     var banner = byId('triage-result'); if (!banner || !_lastTriage) return;
     var tr = _lastTriage;
-    banner.className = 'triage-banner' + (tr.urgent ? ' urgent' : ''); banner.classList.remove('hidden');
+    var confidence = num(tr.confidence), confidenceText = confidence == null ? '' : '<span class="triage-confidence">' + esc(t('hp_triage_conf', { n: Math.round(confidence * 100) })) + '</span>';
+    var recommendation = curLang === 'zh' ? tr.recommendation_zh : tr.recommendation_en;
+    var questions = (curLang === 'zh' ? (tr.follow_up_questions || []) : (tr.follow_up_questions_en || tr.follow_up_questions || [])).slice(0, 3);
+    banner.className = 'triage-banner' + (tr.urgent ? ' urgent' : '') + (tr.needs_clarification ? ' needs-detail' : ''); banner.classList.remove('hidden');
     banner.innerHTML = '<span class="triage-tag">' + (tr.urgent ? t('hp_urgent') : t('hp_recommended')) + '</span>' +
+      confidenceText +
       '<h4>' + esc(tr.department_en || 'General Medicine') + ' <span class="dept-zh">' + esc(tr.department_zh || '') + '</span></h4>' +
       (tr.urgent ? '<p style="margin:4px 0 0;color:var(--danger);font-weight:600;">' + t('hp_call120') + '</p>' : '') +
+      (!tr.urgent && recommendation ? '<p class="triage-copy">' + esc(recommendation) + '</p>' : '') +
+      (tr.needs_clarification ? '<div class="triage-clarify"><strong>' + esc(t('hp_need_more')) + '</strong>' + (questions.length ? '<div class="triage-question-label">' + esc(t('hp_follow_up')) + '</div><ul>' + questions.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul>' : '') + '</div>' : '') +
       ((tr.matched_symptoms && tr.matched_symptoms.length) ? '<div class="chips" style="margin-top:8px;">' + tr.matched_symptoms.slice(0, 6).map(function (s) { return '<span class="chip static">' + esc(s) + '</span>'; }).join('') + '</div>' : '');
   }
   function loadHospitals() {
@@ -667,25 +678,140 @@
     renderHospitals(FALLBACK_HOSPITALS, false, 0);
     api('/api/hospitals?limit=12').then(function (d) { if (myReq !== _hospReq) return; if (d && d.hospitals && d.hospitals.length) renderHospitals(d.hospitals, false, 0); }).catch(function () {});
   }
+
+  var LOCAL_DEPT_ZH = {
+    'Emergency': '急诊科', 'General Medicine': '全科医学科 / 普通内科', 'Internal Medicine': '普通内科',
+    'Family Medicine': '全科医学科', 'Mental Health / Psychiatry': '精神心理科', 'Cardiology': '心血管内科',
+    'Pulmonary / Respiratory': '呼吸与危重症医学科', 'Neurology': '神经内科', 'Gastroenterology': '消化内科',
+    'Orthopedics': '骨科', 'Dermatology': '皮肤科', 'Ophthalmology': '眼科', 'ENT': '耳鼻咽喉科',
+    'Dental': '口腔科', 'Pediatrics': '儿科', 'Obstetrics & Gynecology': '妇产科', 'Urology': '泌尿外科',
+    'Endocrinology': '内分泌科', 'Oncology': '肿瘤科'
+  };
+  var LOCAL_TRIAGE_RULES = [
+    { id: 'self_harm', terms: ['不想活','想死','轻生','自杀','自残','伤害自己','suicidal','suicide','kill myself','self harm'], scores: {'Emergency':150,'Mental Health / Psychiatry':140}, c:.98, urgent:true, q:['你现在是否有伤害自己的计划或已经采取行动？'] },
+    { id: 'stroke', terms: ['口角歪斜','一侧无力','单侧无力','说话含糊','言语不清','中风','face droop','one-sided weakness','slurred speech','stroke'], scores: {'Emergency':150,'Neurology':140}, c:.97, urgent:true },
+    { id: 'pregnancy_bleeding', terms: ['孕期出血','怀孕出血','孕妇出血','pregnant and bleeding','bleeding during pregnancy'], scores: {'Emergency':145,'Obstetrics & Gynecology':135}, c:.96, urgent:true },
+    { id: 'chest_pain', terms: ['胸口疼','胸部疼痛','胸痛','胸闷','chest pain','chest pressure','chest tightness'], scores: {'Emergency':125,'Cardiology':120}, c:.90, urgent:true, q:['胸痛是否突然发生，是否伴出汗、恶心或向手臂/下颌放射？'] },
+    { id: 'breathing', terms: ['呼吸困难','喘不上气','不能呼吸','憋气','shortness of breath','difficulty breathing','cannot breathe','breathless'], scores: {'Emergency':130,'Pulmonary / Respiratory':120,'Cardiology':55}, c:.92, urgent:true },
+    { id: 'low_mood', terms: ['心情不好','情绪低落','情绪不好','很难过','提不起精神','depressed','low mood','feeling down','hopeless'], scores: {'Mental Health / Psychiatry':110}, c:.76, clarify:true, q:['这种状态持续多久了，是否已影响睡眠、学习或工作？','是否出现过伤害自己或不想活的想法？'] },
+    { id: 'anxiety', terms: ['焦虑','压力很大','压力大','惊恐发作','恐慌','anxiety','anxious','panic attack','severe stress'], scores: {'Mental Health / Psychiatry':105}, c:.80, clarify:true },
+    { id: 'sleep', terms: ['失眠','睡不着','早醒','睡眠很差','insomnia','cannot sleep','trouble sleeping'], scores: {'Mental Health / Psychiatry':80,'General Medicine':35}, c:.72, clarify:true },
+    { id: 'palpitations', terms: ['心悸','心跳很快','心跳不齐','心慌','palpitations','heart racing'], scores: {'Cardiology':105,'General Medicine':35}, c:.83 },
+    { id: 'cough', terms: ['咳嗽','咳痰','有痰','干咳','cough','coughing','phlegm','sputum'], scores: {'Pulmonary / Respiratory':100,'Internal Medicine':45,'Family Medicine':35}, c:.82 },
+    { id: 'fever', terms: ['高烧','高热','发烧','发热','fever','high fever'], scores: {'Internal Medicine':75,'Pulmonary / Respiratory':35}, c:.72, clarify:true },
+    { id: 'headache', terms: ['偏头痛','剧烈头痛','头痛','头疼','headache','migraine'], scores: {'Neurology':95,'Internal Medicine':40}, c:.78 },
+    { id: 'dizziness', terms: ['天旋地转','头晕','眩晕','dizziness','dizzy','vertigo'], scores: {'Neurology':80,'ENT':65,'Cardiology':40}, c:.70, clarify:true },
+    { id: 'abdominal', terms: ['肚子痛','肚子疼','胃痛','胃疼','腹痛','abdominal pain','stomach pain'], scores: {'Gastroenterology':100,'Internal Medicine':40}, c:.78, clarify:true },
+    { id: 'digestive', terms: ['恶心','呕吐','腹泻','拉肚子','便秘','反酸','nausea','vomiting','diarrhea','constipation','reflux'], scores: {'Gastroenterology':90,'Internal Medicine':35}, c:.76 },
+    { id: 'injury', terms: ['骨折','摔伤','扭伤','运动损伤','fracture','broken bone','sprain','sports injury'], scores: {'Orthopedics':115,'Emergency':65}, c:.88 },
+    { id: 'joint', terms: ['腰痛','腰疼','背痛','关节痛','膝盖疼','肩膀疼','back pain','joint pain','knee pain','shoulder pain'], scores: {'Orthopedics':95}, c:.80 },
+    { id: 'skin', terms: ['皮疹','皮肤瘙痒','皮肤痒','湿疹','荨麻疹','rash','itchy skin','eczema','hives'], scores: {'Dermatology':110}, c:.86 },
+    { id: 'eye', terms: ['眼睛痛','眼痛','视力下降','看不清','眼睛红','eye pain','vision loss','blurred vision','red eye'], scores: {'Ophthalmology':115}, c:.88 },
+    { id: 'ent', terms: ['耳朵疼','耳痛','听力下降','耳鸣','鼻塞','流鼻涕','喉咙痛','吞咽痛','ear pain','hearing loss','sore throat'], scores: {'ENT':105,'Internal Medicine':30}, c:.82 },
+    { id: 'dental', terms: ['牙龈肿','牙龈出血','牙痛','牙疼','toothache','tooth pain','dental pain'], scores: {'Dental':120}, c:.92 },
+    { id: 'urinary', terms: ['排尿疼痛','尿痛','尿频','尿急','血尿','排尿困难','painful urination','frequent urination','blood in urine'], scores: {'Urology':105}, c:.84 },
+    { id: 'pregnancy', terms: ['怀孕','孕期','孕妇','月经异常','妇科','pregnant','pregnancy','gynecology','gynaecology'], scores: {'Obstetrics & Gynecology':110}, c:.86 },
+    { id: 'endocrine', terms: ['糖尿病','血糖高','甲状腺','甲亢','甲减','diabetes','high blood sugar','thyroid'], scores: {'Endocrinology':115}, c:.90 },
+    { id: 'oncology', terms: ['癌症','恶性肿瘤','肿瘤复查','化疗','cancer','malignant tumor','chemotherapy'], scores: {'Oncology':125}, c:.94 },
+    { id: 'general', terms: ['身体不舒服','不舒服','很难受','感觉不对劲','乏力','feeling unwell','not feeling well','fatigue'], scores: {'General Medicine':70,'Internal Medicine':45}, c:.38, clarify:true, q:['最不舒服的部位在哪里？','症状持续多久、严重程度如何，并伴有哪些症状？'] }
+  ];
+
+  function localPositiveTerm(text, terms) {
+    var sorted = terms.slice().sort(function (a, b) { return b.length - a.length; });
+    for (var i = 0; i < sorted.length; i++) {
+      var term = sorted[i].toLowerCase(), from = 0, at;
+      while ((at = text.indexOf(term, from)) >= 0) {
+        var prefix = text.slice(Math.max(0, at - 36), at).split(/[，。；,.!?！？\n]/).pop();
+        var negated = /(?:没有|并无|否认|未见|未出现|不伴|没|无|不)(?:任何)?[^，。；,.!?！？]{0,5}$/.test(prefix) || /(?:\bno|\bnot|\bwithout|\bdenies|\bdenied)\s+(?:[a-z'-]+\s+){0,3}$/i.test(prefix);
+        if (!negated) return term;
+        from = at + term.length;
+      }
+    }
+    return '';
+  }
+
+  function localTriage(sym, spec) {
+    var text = String(sym || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (spec) return { department_en: spec, department_zh: LOCAL_DEPT_ZH[spec] || spec, urgent: spec === 'Emergency', matched_symptoms: [], specialty_scores: (function () { var x = {}; x[spec] = 180; return x; })(), confidence: .96, needs_clarification: false, follow_up_questions: [], recommendation_en: 'Hospitals are ranked against your selected department.', recommendation_zh: '已按你手动选择的科室匹配医院。', engine_version: 'local-triage-v2.0' };
+    var scores = {}, matched = [], questions = [], confidence = .20, urgent = false, clarify = false, concepts = 0;
+    LOCAL_TRIAGE_RULES.forEach(function (rule) {
+      var term = localPositiveTerm(text, rule.terms);
+      if (!term) return;
+      concepts += 1; matched.push(term); confidence = Math.max(confidence, rule.c || .6); urgent = urgent || !!rule.urgent; clarify = clarify || !!rule.clarify;
+      Object.keys(rule.scores).forEach(function (sp) { scores[sp] = (scores[sp] || 0) + rule.scores[sp]; });
+      (rule.q || []).forEach(function (q) { if (questions.indexOf(q) < 0) questions.push(q); });
+    });
+    var child = localPositiveTerm(text, ['婴儿','宝宝','儿童','孩子','小孩','baby','infant','toddler','child']);
+    if (child) { scores.Pediatrics = (scores.Pediatrics || 0) + 140; matched.push(child); confidence = Math.max(confidence, .78); }
+    if (!Object.keys(scores).length) { scores['General Medicine'] = 40; clarify = true; questions = ['最不舒服的部位在哪里？','症状持续多久、严重程度如何，并伴有哪些症状？']; }
+    confidence = Math.min(.99, confidence + Math.min(.10, Math.max(0, concepts - 1) * .035));
+    var ranked = Object.keys(scores).sort(function (a, b) { return scores[b] - scores[a] || a.localeCompare(b); });
+    if (urgent && ranked[0] !== 'Emergency') { scores.Emergency = Math.max(scores.Emergency || 0, scores[ranked[0]] + 10); ranked = Object.keys(scores).sort(function (a, b) { return scores[b] - scores[a]; }); }
+    var primary = ranked[0], needs = clarify || confidence < .68;
+    var recZh = urgent ? '检测到可能的红旗症状，请立即拨打 120 或前往最近急诊。' : (primary === 'Mental Health / Psychiatry' ? '初步建议精神心理科或心理门诊；如出现自伤或轻生想法，请立即寻求急诊帮助。' : (needs ? '当前信息不足以做高置信度分诊，请补充细节后再选择医院。' : '这是初步就医分流建议，不构成诊断。'));
+    var recEn = urgent ? 'A possible red flag was detected. Call 120 or go to the nearest emergency department now.' : (needs ? 'More detail is needed before choosing a hospital.' : 'This is preliminary routing guidance, not a diagnosis.');
+    var qEn = primary === 'Mental Health / Psychiatry' ? ['How long has this lasted, and is it affecting sleep, study or work?','Have you had thoughts of harming yourself or not wanting to live?'] : ['How long has this lasted, how severe is it, and what other symptoms are present?'];
+    return { department_en: primary, department_zh: LOCAL_DEPT_ZH[primary] || primary, urgent: urgent, matched_symptoms: matched.slice(0, 8), specialty_scores: scores, confidence: confidence, needs_clarification: needs, follow_up_questions: questions.slice(0, 3), follow_up_questions_en: qEn, recommendation_en: recEn, recommendation_zh: recZh, engine_version: 'local-triage-v2.0' };
+  }
+
+  function localHospitalStrength(h, specialty) {
+    var specs = (h.specialties || []).map(function (x) { return String(x).toLowerCase(); });
+    var target = String(specialty || '').toLowerCase();
+    var direct = specs.indexOf(target) >= 0 ? 90 : 0;
+    if ((specialty === 'Internal Medicine' || specialty === 'Family Medicine') && specs.indexOf('general medicine') >= 0) direct = Math.max(direct, 62);
+    var name = ((h.name_zh || '') + ' ' + (h.name || '')).toLowerCase();
+    var leaders = {
+      'Mental Health / Psychiatry': /安定医院|北京大学第六医院|精神卫生中心/,
+      'Cardiology': /阜外|安贞/, 'Neurology': /宣武|天坛/, 'Ophthalmology': /同仁医院|眼科中心/,
+      'ENT': /同仁医院|眼耳鼻喉/, 'Orthopedics': /积水潭|北京大学第三医院/,
+      'Dental': /北京大学口腔|华西口腔|第九人民/, 'Pediatrics': /儿童医院|儿童医学中心/,
+      'Gastroenterology': /友谊医院|西京医院/, 'Pulmonary / Respiratory': /中日友好|朝阳医院|广州医科大学附属第一/,
+      'Dermatology': /北京大学第一医院|华山医院/, 'Emergency': /协和医院|朝阳医院|和睦家/,
+      'Endocrinology': /协和医院|瑞金医院/, 'Oncology': /肿瘤医院|肿瘤防治中心/,
+      'Obstetrics & Gynecology': /妇产|华西第二医院/, 'Urology': /北京大学第一医院|解放军总医院/,
+      'General Medicine': /协和医院|解放军总医院|华西医院/
+    };
+    return Math.max(direct, leaders[specialty] && leaders[specialty].test(name) ? 100 : 0);
+  }
+
+  function localRecommendationFallback(analysis) {
+    var scores = analysis.specialty_scores || {}, totalWeight = Object.keys(scores).reduce(function (sum, sp) { return sum + Math.max(0, scores[sp] || 0); }, 0) || 1;
+    var factor = .70 + .30 * Math.max(0, Math.min(1, analysis.confidence || .2));
+    return FALLBACK_HOSPITALS.filter(function (h) { return !h.city || h.city === '北京'; }).map(function (h) {
+      var weighted = 0, matched = [], leaders = [];
+      Object.keys(scores).forEach(function (sp) { var strength = localHospitalStrength(h, sp); weighted += strength * scores[sp]; if (strength >= 40) matched.push(sp); if (strength === 100) leaders.push(sp); });
+      var fit = weighted / totalWeight, emergency = localHospitalStrength(h, 'Emergency');
+      var eligible = fit >= 40 && (!analysis.urgent || emergency >= 60);
+      var raw = fit * .55 + (leaders.length ? 12 : 0) + (/三级甲等|三甲/.test(h.grade || '') ? 8 : 0) + 4 + (analysis.urgent && emergency >= 60 ? 12 : 0);
+      var score = Math.max(0, Math.min(100, raw * factor));
+      var copy = Object.assign({}, h);
+      copy.recommendation = { score: score, calibrated_score: score, match_level: score >= 70 ? 'high' : (score >= 50 ? 'moderate' : 'low'), eligible: eligible, matched_specialties: matched, leader_specialties: leaders, reasons: [], score_version: 'hospital-fit-v2.0-local' };
+      return copy;
+    }).filter(function (h) { return h.recommendation.eligible; }).sort(function (a, b) { return b.recommendation.score - a.recommendation.score || String(a.name_zh).localeCompare(String(b.name_zh)); }).slice(0, 10);
+  }
+
+  // Read-only hook used by browser regression tests and support diagnostics.
+  window.TransMedRecommendation = { analyze: localTriage, rank: localRecommendationFallback };
+
   function runRecommend() {
     var sym = ((byId('triage-input') || {}).value || '').trim(), spec = (byId('specialty-filter') || {}).value || '';
     var banner = byId('triage-result'), box = byId('hospital-list');
     if (!sym && !spec) { toast(t('hp_describe_first'), 'warn'); return; }
-    if (box) box.innerHTML = '<div class="empty-state"><span class="spinner"></span> ' + t('hp_matching') + '</div>';
-    if (banner) banner.classList.add('hidden');
     _sortMode = 'match'; syncSortUI();
+    _lastTriage = localTriage(sym, spec); renderTriageBanner();
+    var localHospitals = localRecommendationFallback(_lastTriage);
+    if (localHospitals.length) renderHospitals(localHospitals, true, 0);
+    else if (box) box.innerHTML = '<div class="empty-state"><span class="spinner"></span> ' + t('hp_matching') + '</div>';
     var myReq = ++_hospReq, body = { symptoms: sym || spec, city: '北京', limit: 10 };
     if (spec) body.specialty_override = spec;
-    if (currentUser && currentUser.language) body.language = currentUser.language;
-    api('/api/recommendations', { method: 'POST', body: body, timeout: 18000 }).then(function (d) {
+    body.language = curLang || (currentUser && currentUser.language) || 'en';
+    api('/api/recommendations', { method: 'POST', body: body, timeout: 30000 }).then(function (d) {
       if (myReq !== _hospReq) return;
       _lastTriage = d.triage || {}; renderTriageBanner();
-      var list = d.hospitals || [], maxScore = list.reduce(function (m, h) { return Math.max(m, (h.recommendation && h.recommendation.score) || 0); }, 0);
-      renderHospitals(list, true, maxScore);
+      renderHospitals(d.hospitals || [], true, 0);
     }).catch(function () {
       if (myReq !== _hospReq) return;
-      if (banner) { banner.className = 'triage-banner'; banner.classList.remove('hidden'); banner.innerHTML = '<span class="triage-tag">•</span><h4 style="font-size:15px;">' + t('hp_waking_t') + '</h4><p class="muted small" style="margin:4px 0 0;">' + t('hp_waking_d') + '</p>'; }
-      loadHospitals();
+      toast(t('hp_waking_d'), 'warn');
     });
   }
   on(byId('btn-triage'), 'click', runRecommend);

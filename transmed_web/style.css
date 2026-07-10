@@ -475,6 +475,8 @@ select {
 /* ============================================================ Finder / Triage / Hospitals */
 .finder-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px; box-shadow: var(--shadow); }
 .finder-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.finder-card textarea { min-height: 84px; }
+.field-hint { margin: 6px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .sort-row { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .sort-row > span { font-size: 12.5px; color: var(--muted); font-weight: 600; }
 .seg { display: inline-flex; background: var(--surface-inset); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 3px; gap: 2px; }
@@ -498,6 +500,20 @@ select {
 .triage-banner.urgent .triage-tag { background: var(--danger); }
 .triage-banner h4 { margin: 10px 0 4px; font-size: 18px; font-family: var(--font-serif); font-weight: 500; }
 .triage-banner .dept-zh { color: var(--muted); font-weight: 500; }
+.triage-confidence {
+  display: inline-flex; margin-left: 8px; padding: 3px 9px; border-radius: var(--r-pill);
+  background: var(--surface-inset); color: var(--ink-soft); font-size: 11.5px; font-weight: 700;
+}
+.triage-copy { margin: 7px 0 0; color: var(--ink-soft); font-size: 13.5px; }
+.triage-banner.needs-detail { border-left-color: var(--risk-med); }
+.triage-clarify {
+  margin-top: 12px; padding: 11px 14px; border-radius: var(--r-sm);
+  border: 1px solid rgba(194, 134, 13, 0.25); background: rgba(194, 134, 13, 0.07);
+  color: var(--ink-soft); font-size: 13px;
+}
+.triage-question-label { margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.triage-clarify ul { margin: 4px 0 0; padding-left: 20px; }
+.triage-clarify li + li { margin-top: 2px; }
 
 @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 .hospital-list { display: grid; gap: 14px; margin-top: 20px; }
@@ -553,14 +569,18 @@ select {
 
 .hospital-side { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 132px; }
 .score-ring {
+  --score-color: var(--accent);
   --p: 0;
   width: 96px; height: 96px; border-radius: 50%;
   display: grid; place-items: center; position: relative; flex-shrink: 0;
   background:
-    conic-gradient(from -90deg, var(--accent) calc(var(--p) * 1%), var(--bg-warm-2) 0);
+    conic-gradient(from -90deg, var(--score-color) calc(var(--p) * 1%), var(--bg-warm-2) 0);
   filter: drop-shadow(0 4px 10px rgba(26, 120, 194, 0.16));
   transition: filter 0.28s var(--ease);
 }
+.score-ring.score-high { --score-color: var(--trust); }
+.score-ring.score-moderate { --score-color: var(--accent); }
+.score-ring.score-low { --score-color: var(--risk-med); }
 /* soft gradient sweep along the progress arc for extra depth */
 .score-ring::before {
   content: ""; position: absolute; inset: 0; border-radius: 50%;

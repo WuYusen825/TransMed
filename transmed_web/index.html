@@ -218,15 +218,16 @@
       <div class="finder-grid">
         <div class="field">
           <label data-i18n="hp_sym_label">Describe your symptoms</label>
-          <input id="triage-input" type="text" data-i18n-ph="hp_sym_ph" placeholder="e.g. persistent headache and high fever for 2 days" />
+          <textarea id="triage-input" rows="3" data-i18n-ph="hp_sym_ph" placeholder="e.g. persistent headache and high fever for 2 days"></textarea>
+          <p class="field-hint" data-i18n="tr_tip">Tip: be specific about duration, intensity and allergies.</p>
         </div>
         <div class="field">
           <label data-i18n="hp_dept_label">Department (optional)</label>
           <select id="specialty-filter">
             <option value="" data-i18n="hp_dept_auto">Auto-detect</option>
-            <option>Cardiology</option><option>Neurology</option><option>Pediatrics</option>
-            <option>Obstetrics &amp; Gynecology</option><option>Orthopedics</option><option>Dental</option>
-            <option>Dermatology</option><option>Emergency</option><option>ENT</option>
+            <option>Mental Health / Psychiatry</option><option>Cardiology</option><option>Neurology</option><option>Pulmonary / Respiratory</option>
+            <option>Pediatrics</option><option>Obstetrics &amp; Gynecology</option><option>Gastroenterology</option><option>Orthopedics</option>
+            <option>Dental</option><option>Dermatology</option><option>Emergency</option><option>ENT</option>
             <option>Ophthalmology</option><option>Oncology</option><option>General Medicine</option>
           </select>
         </div>
