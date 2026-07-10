@@ -25,3 +25,4 @@ transmed_storage/
 .env
 .env.local
 .env.*.local
+.vercel/
