@@ -147,8 +147,9 @@ SPECIALTY_ALIASES: dict[str, list[str]] = {
         "emergency", "emergency medicine", "er", "icu", "critical care", "trauma", "accident",
         "急诊", "急诊科", "急诊医学科", "重症医学", "重症监护"],
     "Plastic Surgery": [
-        "plastic surgery", "plastic and reconstructive", "reconstructive", "cosmetic",
-        "整形外科", "整形科"],
+        "plastic surgery", "plastic and reconstructive", "reconstructive", "cosmetic", "burn surgery",
+        "burn care", "wound care", "整形外科", "整形科", "烧伤科", "烧伤整形",
+        "创面修复", "创面修复科"],
     "Travel Medicine": [
         "travel medicine", "travel health", "travel clinic", "traveler",
         "旅行医学", "旅行健康"],
@@ -1411,4 +1412,3 @@ try:
         _existing_names.add(_h.get("name_zh"))
 except Exception:  # pragma: no cover - expansion file optional
     pass
-

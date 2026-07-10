@@ -107,7 +107,7 @@ def _cache_put(key: str, value: Dict[str, Any]) -> None:
 
 
 def _system_prompt() -> str:
-    departments = ", ".join(_ALLOWED_DEPARTMENTS)
+    departments = ", ".join(f"{name} ({DEPARTMENT_ZH[name]})" for name in _ALLOWED_DEPARTMENTS)
     schema = json.dumps(_SEMANTIC_SCHEMA, ensure_ascii=False, separators=(",", ":"))
     return (
         "You are the semantic parsing layer of a multilingual hospital-routing system, "

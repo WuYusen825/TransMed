@@ -25,6 +25,8 @@ DEPARTMENT_ZH: Dict[str, str] = {
     "Neurology": "神经内科",
     "Neurosurgery": "神经外科",
     "Gastroenterology": "消化内科",
+    "General Surgery": "普通外科",
+    "Plastic Surgery": "烧伤整形科 / 创面修复科",
     "Orthopedics": "骨科",
     "Sports Medicine": "运动医学科",
     "Rheumatology": "风湿免疫科",
@@ -41,6 +43,7 @@ DEPARTMENT_ZH: Dict[str, str] = {
     "Nephrology": "肾内科",
     "Endocrinology": "内分泌科",
     "Oncology": "肿瘤科",
+    "Surgical Oncology": "肿瘤外科",
     "Hematology": "血液科",
     "Infectious Diseases": "感染科",
     "Mental Health / Psychiatry": "精神心理科",
@@ -48,6 +51,7 @@ DEPARTMENT_ZH: Dict[str, str] = {
     "Physiotherapy / Rehabilitation": "康复医学科",
     "Geriatrics": "老年医学科",
     "Traditional Chinese Medicine": "中医科",
+    "Travel Medicine": "旅行医学 / 国际旅行卫生门诊",
 }
 
 _FOLLOW_UP_EN: Dict[str, Tuple[str, ...]] = {

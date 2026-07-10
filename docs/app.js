@@ -699,6 +699,7 @@
     'Emergency': '急诊科', 'General Medicine': '全科医学科 / 普通内科', 'Internal Medicine': '普通内科',
     'Family Medicine': '全科医学科', 'Mental Health / Psychiatry': '精神心理科', 'Cardiology': '心血管内科',
     'Pulmonary / Respiratory': '呼吸与危重症医学科', 'Neurology': '神经内科', 'Gastroenterology': '消化内科',
+    'General Surgery': '普通外科', 'Plastic Surgery': '烧伤整形科 / 创面修复科',
     'Orthopedics': '骨科', 'Dermatology': '皮肤科', 'Ophthalmology': '眼科', 'ENT': '耳鼻咽喉科',
     'Dental': '口腔科', 'Pediatrics': '儿科', 'Obstetrics & Gynecology': '妇产科', 'Urology': '泌尿外科',
     'Endocrinology': '内分泌科', 'Oncology': '肿瘤科'

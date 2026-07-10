@@ -104,6 +104,8 @@ HOSPITALS_EXT: list[dict] = [
         "lat": 39.9000,
     },
     {
+        # Beijing Municipal Health Commission identifies burn care as a
+        # national clinical key specialty at Beijing Jishuitan Hospital.
         "id": "bj-jishuitan",
         "name": "Beijing Jishuitan Hospital",
         "name_zh": "北京积水潭医院",
@@ -111,7 +113,7 @@ HOSPITALS_EXT: list[dict] = [
         "city": "北京",
         "address_zh": "北京市西城区新街口东街31号",
         "phone": "+86 10 5851 6688",
-        "specialties": ["Orthopedics", "Sports Medicine"],
+        "specialties": ["Orthopedics", "Sports Medicine", "Plastic Surgery"],
         "languages": ["Chinese"],
         "lng": 116.3736,
         "lat": 39.9450,
