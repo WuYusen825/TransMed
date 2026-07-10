@@ -673,11 +673,15 @@
     var tr = _lastTriage;
     var confidence = num(tr.confidence), confidenceText = confidence == null ? '' : '<span class="triage-confidence">' + esc(t('hp_triage_conf', { n: Math.round(confidence * 100) })) + '</span>';
     var recommendation = curLang === 'zh' ? tr.recommendation_zh : tr.recommendation_en;
+    var semanticSummary = curLang === 'zh' ? tr.clinical_summary_zh : tr.clinical_summary_en;
+    var engineText = tr.semantic_used ? (curLang === 'zh' ? 'AI 语义解析' : 'AI semantic parsing') : ((tr.engine_version || '').indexOf('fallback') >= 0 ? (curLang === 'zh' ? '规则降级' : 'Rule fallback') : '');
+    var engineBadge = engineText ? '<span class="triage-confidence">' + esc(engineText) + '</span>' : '';
     var questions = (curLang === 'zh' ? (tr.follow_up_questions || []) : (tr.follow_up_questions_en || tr.follow_up_questions || [])).slice(0, 3);
     banner.className = 'triage-banner' + (tr.urgent ? ' urgent' : '') + (tr.needs_clarification ? ' needs-detail' : ''); banner.classList.remove('hidden');
     banner.innerHTML = '<span class="triage-tag">' + (tr.urgent ? t('hp_urgent') : t('hp_recommended')) + '</span>' +
-      confidenceText +
+      confidenceText + engineBadge +
       '<h4>' + esc(tr.department_en || 'General Medicine') + ' <span class="dept-zh">' + esc(tr.department_zh || '') + '</span></h4>' +
+      (semanticSummary ? '<p class="triage-copy"><strong>' + (curLang === 'zh' ? '语义识别：' : 'Understood as: ') + '</strong>' + esc(semanticSummary) + '</p>' : '') +
       (tr.urgent ? '<p style="margin:4px 0 0;color:var(--danger);font-weight:600;">' + t('hp_call120') + '</p>' : '') +
       (!tr.urgent && recommendation ? '<p class="triage-copy">' + esc(recommendation) + '</p>' : '') +
       (tr.needs_clarification ? '<div class="triage-clarify"><strong>' + esc(t('hp_need_more')) + '</strong>' + (questions.length ? '<div class="triage-question-label">' + esc(t('hp_follow_up')) + '</div><ul>' + questions.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul>' : '') + '</div>' : '') +

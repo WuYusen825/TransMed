@@ -46,6 +46,7 @@
 - **JWT 认证**：注册、登录、密码修改、会话管理（前端 localStorage 持久会话）
 - **RESTful API**：30+ 端点，OpenAPI 文档自动生成
 - **在线 + 离线双栈翻译**：在线 Groq LLM 翻译 + 离线医疗术语兜底，断网也能给出带置信度的结果
+- **开放表达语义分诊**：低置信度或口语化输入进入受控 JSON 语义解析；科室白名单、原文证据校验、WHO 急症安全覆盖、超时回退与 15 分钟缓存均在本地执行，不再依赖穷举症状措辞
 
 ---
 
@@ -67,6 +68,7 @@ TransMed/
 │   ├── schemas.py             ← Pydantic 数据校验
 │   ├── auth.py                ← JWT / 密码哈希
 │   ├── translator.py          ← 翻译引擎（双栈 + 医学术语对齐）
+│   ├── semantic_triage.py     ← 开放词汇语义分诊（结构化输出 + 安全覆盖）
 │   ├── initializer.py         ← 启动初始化
 │   ├── data.py                ← 静态知识库（医院 / 药品 / 术语）
 │   ├── amap.py                ← 高德 POI 检索 / 路线 / 前端配置（含安全密钥）
@@ -254,6 +256,9 @@ curl -X POST http://127.0.0.1:8000/api/translate \
 | `TRANSMED_ADMIN_EMAIL` | `admin@transmed.io` | 初始管理员邮箱 |
 | `TRANSMED_ADMIN_PASSWORD` | `admin123` | 初始管理员密码（**首次登录后立即修改**） |
 | `TRANSMED_GROQ_API_KEY` | _(空)_ | Groq LLM 翻译引擎密钥；不填则回退离线术语匹配 |
+| `TRANSMED_SEMANTIC_TRIAGE_ENABLED` | `true` | 是否启用开放表达语义分诊；关闭或无 Groq 密钥时回退确定性规则 |
+| `TRANSMED_SEMANTIC_TRIAGE_MODEL` | 同 `TRANSMED_GROQ_MODEL` | 语义解析模型；输出仍须通过本地科室白名单和原文证据校验 |
+| `TRANSMED_SEMANTIC_TRIAGE_TIMEOUT_SECONDS` | `12` | 单次语义解析总超时预算，耗尽后自动回退规则路径 |
 | `TRANSMED_AMAP_KEY` | _(内置 demo)_ | 高德「**Web 服务**」Key：后端医院 POI 检索 / 地理编码 |
 | `TRANSMED_AMAP_JS_KEY` | _(内置 demo)_ | 高德「**Web 端 (JS API)**」Key：前端地图 |
 | `TRANSMED_AMAP_SECURITY_JS_CODE` | _(空)_ | 与 JS Key 配套的**安全密钥**；**不填则页面内画不出路线**（见下方「高德地图配置」） |

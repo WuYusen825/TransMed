@@ -47,9 +47,13 @@ from .data import (HOSPITALS, TRIAGE_RULES, URGENT_SYMPTOMS, MEDICAL_TERMS,
                    MEDICATIONS,
                    SYMPTOM_TO_SPECIALTIES, SPECIALTY_ALIASES, HOSPITAL_STRENGTH)
 from .hospital_dataset import HOSPITALS_EXT
-from .recommendation_engine import DEPARTMENT_ZH, ENGINE_VERSION, analyze_symptoms
+from .recommendation_engine import DEPARTMENT_ZH
+from .semantic_triage import HYBRID_ENGINE_VERSION, analyze_symptoms_hybrid
 from . import reviews as _reviews
 from . import amap as _amap
+
+
+logger = logging.getLogger(__name__)
 
 # 医学术语 RAG 检索改为实时调用外部权威 API（见 terminology_api.py），不再内嵌语料。
 # 以下为 RAG 覆盖的权威术语库来源；本地 MEDICAL_TERMS 词典仅用于翻译时的即时术语高亮 / 置信度估计。
@@ -107,7 +111,7 @@ class HealthOut(BaseModel):
     medications: int
     triage_rules: int
     terminology_sources: List[str] = []
-    triage_engine: str = ENGINE_VERSION
+    triage_engine: str = HYBRID_ENGINE_VERSION
     recommendation_engine: str = "hospital-fit-v2.0"
 
 
@@ -148,7 +152,13 @@ class TriageOut(BaseModel):
     alternative_departments: List[Dict[str, Any]] = Field(default_factory=list)
     follow_up_questions: List[str] = Field(default_factory=list)
     follow_up_questions_en: List[str] = Field(default_factory=list)
-    engine_version: str = "triage-v2.0"
+    acuity: str = "unclear"
+    clinical_summary_zh: str = ""
+    clinical_summary_en: str = ""
+    routing_reason_zh: str = ""
+    routing_reason_en: str = ""
+    semantic_used: bool = False
+    engine_version: str = HYBRID_ENGINE_VERSION
 
 
 class HospitalOut(BaseModel):
@@ -283,7 +293,7 @@ def _hospital_to_out(h: dict) -> HospitalOut:
 def health():
     return HealthOut(hospitals=len(HOSPITALS), medications=len(MEDICATIONS),
                      triage_rules=len(TRIAGE_RULES), terminology_sources=TERMINOLOGY_SOURCES,
-                     triage_engine=ENGINE_VERSION, recommendation_engine="hospital-fit-v2.0")
+                     triage_engine=HYBRID_ENGINE_VERSION, recommendation_engine="hospital-fit-v2.0")
 
 
 # -------------------------------------------------------------- translate
@@ -427,7 +437,7 @@ def _parse_symptoms_to_specialty_scores(text: str) -> dict[str, float]:
     """Parse bilingual symptom text with negation and uncertainty support."""
     if not text or not text.strip():
         return {}
-    return dict(analyze_symptoms(text).get("specialty_scores") or {})
+    return dict(analyze_symptoms_hybrid(text).get("specialty_scores") or {})
 
 
 # Keywords in hospital name → specialty boost. If any token appears in hospital
@@ -762,7 +772,7 @@ def _triage_core(text: str) -> TriageOut:
     text = (text or "").strip()
     if not text:
         raise HTTPException(400, "symptoms are required")
-    analysis = analyze_symptoms(text)
+    analysis = analyze_symptoms_hybrid(text)
     return TriageOut(**{key: analysis[key] for key in TriageOut.model_fields if key in analysis})
 
 
@@ -814,7 +824,7 @@ def hospitals_list(keyword: Optional[str] = "",
     specialty_scores: dict[str, float] = {}
     triage_confidence = 0.8
     if symptom and symptom.strip():
-        symptom_analysis = analyze_symptoms(symptom)
+        symptom_analysis = analyze_symptoms_hybrid(symptom)
         specialty_scores = dict(symptom_analysis.get("specialty_scores") or {})
         triage_confidence = float(symptom_analysis.get("confidence") or 0.8)
         # 若 symptom 有意义且用户同时传入 specialty，则也将它加入加权
@@ -1096,7 +1106,7 @@ def recommendations_api(body: RecommendationIn):
     if not text:
         raise HTTPException(400, "symptoms are required")
 
-    analysis = analyze_symptoms(text)
+    analysis = analyze_symptoms_hybrid(text)
     specialty_scores = dict(analysis.get("specialty_scores") or {})
     if body.specialty_override and body.specialty_override.strip():
         canonical = _hospital_specialty_canonical(body.specialty_override) or body.specialty_override

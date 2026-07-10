@@ -46,6 +46,21 @@ class Settings:
         "https://api.groq.com/openai/v1",
     )
 
+    # ——— 语义分诊（复用现有 Groq 连接，不另设密钥）———
+    # 模型只把自由文本解析为受控结构；最终科室、急症覆盖和医院排序仍由
+    # 本地白名单与安全逻辑决定。关闭后自动退回确定性分诊规则。
+    SEMANTIC_TRIAGE_ENABLED: bool = os.environ.get(
+        "TRANSMED_SEMANTIC_TRIAGE_ENABLED", "true"
+    ).strip().lower() not in {"0", "false", "no", "off"}
+    SEMANTIC_TRIAGE_MODEL: str = os.environ.get(
+        "TRANSMED_SEMANTIC_TRIAGE_MODEL",
+        GROQ_MODEL,
+    )
+    SEMANTIC_TRIAGE_TIMEOUT_SECONDS: float = float(os.environ.get(
+        "TRANSMED_SEMANTIC_TRIAGE_TIMEOUT_SECONDS",
+        "12",
+    ))
+
     # ——— 高德地图 AMap ———
     # ⚠️ 两种 Key 不要混用！
     #   · TRANSMED_AMAP_KEY  (AMAP_WEB_KEY): 必须是「Web 服务」类型，用于后端 REST API
