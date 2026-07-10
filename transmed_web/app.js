@@ -517,6 +517,8 @@
     var adv = byId('conf-advice');
     if (adv) adv.textContent = conf >= 85 ? t('tr_advice_low') : conf >= 65 ? t('tr_advice_med') : t('tr_advice_high');
     var bc = byId('confidence-bar'); if (bc) bc.classList.remove('hidden');
+    var ack = byId('btn-confirm-risk');
+    if (ack) ack.classList.toggle('hidden', conf >= 65);
     var tb = byId('matched-terms');
     if (tb) tb.innerHTML = (terms && terms.length) ? '<div class="muted small" style="margin-bottom:6px;">' + t('tr_terms_label') + '</div>' + terms.map(function (x) { return '<span class="chip static">' + esc(x) + '</span>'; }).join('') : '';
     var rb = byId('rag-reference');
@@ -530,6 +532,14 @@
       Object.keys(OFFLINE).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) {
         var re = new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
         if (re.test(res)) { res = res.replace(re, OFFLINE[k]); matched.push(k); }
+      });
+    }
+    if (/zh/.test(src) && /en/.test(tgt)) {
+      Object.keys(OFFLINE).forEach(function (k) {
+        if (res.indexOf(OFFLINE[k]) >= 0) {
+          res = res.split(OFFLINE[k]).join(k);
+          matched.push(k);
+        }
       });
     }
     return { translated: res, confidence: matched.length ? Math.min(70, 35 + matched.length * 9) : 28, matched: matched };
@@ -1057,6 +1067,8 @@
   function closeAuth() { var m = byId('auth-modal'); if (m) m.classList.add('hidden'); var am = byId('auth-message'); if (am) am.textContent = ''; }
   function switchTab(tab) { qsa('.modal-tabs .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === tab); }); var lp = byId('tab-login'), rp = byId('tab-register'); if (lp) lp.classList.toggle('hidden', tab !== 'login'); if (rp) rp.classList.toggle('hidden', tab !== 'register'); }
   qsa('.modal-tabs .tab').forEach(function (b) { on(b, 'click', function () { switchTab(b.dataset.tab); }); });
+  on(byId('tab-login'), 'keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); byId('btn-do-login').click(); } });
+  on(byId('tab-register'), 'keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); byId('btn-do-register').click(); } });
   on(byId('auth-modal'), 'click', function (e) { if (e.target === this) closeAuth(); });
   on(byId('btn-login'), 'click', function () { openAuth('login'); });
   on(byId('btn-logout'), 'click', doLogout);

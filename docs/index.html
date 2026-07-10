@@ -63,15 +63,15 @@
       <button class="tab active" data-tab="login" data-i18n="login_tab">Log in</button>
       <button class="tab" data-tab="register" data-i18n="register_tab">Register</button>
     </div>
-    <div id="tab-login" class="tab-panel">
+    <form id="tab-login" class="tab-panel" novalidate>
       <label data-i18n="email">Email</label>
       <input id="login-email" type="email" placeholder="demo@transmed.io" autocomplete="email" />
       <label data-i18n="password">Password</label>
       <input id="login-password" type="password" placeholder="demo123" autocomplete="current-password" />
-      <button class="btn btn-primary btn-block mt" id="btn-do-login" data-i18n="do_login">Log in</button>
+      <button type="button" class="btn btn-primary btn-block mt" id="btn-do-login" data-i18n="do_login">Log in</button>
       <p class="muted small mt center" data-i18n="demo_hint">Demo: demo@transmed.io / demo123 · Admin: admin@transmed.io / admin123</p>
-    </div>
-    <div id="tab-register" class="tab-panel hidden">
+    </form>
+    <form id="tab-register" class="tab-panel hidden" novalidate>
       <label data-i18n="fullname">Full name</label><input id="reg-name" type="text" placeholder="John Smith" />
       <label data-i18n="email">Email</label><input id="reg-email" type="email" placeholder="john@example.com" autocomplete="email" />
       <label data-i18n="password_min">Password (min 6 chars)</label><input id="reg-password" type="password" placeholder="••••••" autocomplete="new-password" />
@@ -83,8 +83,8 @@
         <option value="es">Español</option><option value="ru">Русский</option>
       </select>
       <label data-i18n="country">Country</label><input id="reg-country" type="text" placeholder="e.g. United Kingdom" />
-      <button class="btn btn-primary btn-block mt" id="btn-do-register" data-i18n="create_account">Create my account</button>
-    </div>
+      <button type="button" class="btn btn-primary btn-block mt" id="btn-do-register" data-i18n="create_account">Create my account</button>
+    </form>
     <p id="auth-message" class="muted small mt center"></p>
   </div>
 </div>
