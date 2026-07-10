@@ -133,7 +133,7 @@
     hp_loading: 'Loading hospitals…', hp_matching: 'Matching hospitals…', hp_describe_first: 'Describe your symptoms first', hp_loc_first: 'Tap “Use my location” first',
     hp_loc_added: 'Location set — distances added',
     hp_urgent: '🚨 URGENT', hp_recommended: '✓ Preliminary department', hp_call120: 'Call 120 or go to the nearest emergency department now. Do not delay care for a ranking.',
-    hp_best_match: '#{n} best match', hp_match_cap: 'fit', hp_strong_in: 'Verified in {sp}', hp_national_leader: 'National leader in {sp}', hp_grade_3a: 'Class III-A (top tier)', hp_rated: 'Rated {r}/5', hp_reviews: '{n} reviews', hp_reviews_paren: '({n} reviews)',
+    hp_best_match: '#{n} best match', hp_match_cap: 'fit', hp_strong_in: 'Verified in {sp}', hp_name_indicates: 'Map listing indicates {sp}; call to confirm', hp_national_leader: 'National leader in {sp}', hp_grade_3a: 'Class III-A (top tier)', hp_rated: 'Rated {r}/5', hp_reviews: '{n} reviews', hp_reviews_paren: '({n} reviews)',
     hp_triage_conf: 'Triage confidence {n}%', hp_need_more: 'More detail is needed before choosing a hospital.', hp_follow_up: 'Please add:', hp_preliminary: 'Preliminary guidance, not a diagnosis.',
     hp_km_you: '{km} km from you', hp_km: '{km} km', hp_speaks: 'Speaks your language', hp_emergency: 'Strong emergency services', hp_navigate: 'Navigate →',
     hp_no_hosp: 'No hospitals found. Try a broader symptom or department.', hp_waking_t: 'Recommendation service is waking up', hp_waking_d: 'Showing all hospitals meanwhile. Try again in a moment.',
@@ -204,7 +204,7 @@
     hp_loading: '加载医院中…', hp_matching: '匹配医院中…', hp_describe_first: '请先描述症状', hp_loc_first: '请先点“用我的位置”',
     hp_loc_added: '已定位——已加入距离',
     hp_urgent: '🚨 紧急', hp_recommended: '✓ 初步建议科室', hp_call120: '请立即拨打 120 或前往最近急诊，不要因医院排名延误就医。',
-    hp_best_match: '#{n} 最匹配', hp_match_cap: '可信匹配', hp_strong_in: '已核验 {sp} 能力', hp_national_leader: '{sp} 全国领先', hp_grade_3a: '三级甲等', hp_rated: '评分 {r}/5', hp_reviews: '{n} 条评价', hp_reviews_paren: '（{n} 条评价）',
+    hp_best_match: '#{n} 最匹配', hp_match_cap: '可信匹配', hp_strong_in: '已核验 {sp} 能力', hp_name_indicates: '地图名称显示设有 {sp}，建议电话确认', hp_national_leader: '{sp} 全国领先', hp_grade_3a: '三级甲等', hp_rated: '评分 {r}/5', hp_reviews: '{n} 条评价', hp_reviews_paren: '（{n} 条评价）',
     hp_triage_conf: '分诊置信度 {n}%', hp_need_more: '当前信息不足，建议补充后再选择医院。', hp_follow_up: '请补充：', hp_preliminary: '仅为就医分流建议，不构成诊断。',
     hp_km_you: '距你 {km} 公里', hp_km: '{km} 公里', hp_speaks: '可用你的语言沟通', hp_emergency: '急诊能力强', hp_navigate: '导航 →',
     hp_no_hosp: '未找到医院。试试更宽泛的症状或科室。', hp_waking_t: '推荐服务正在唤醒', hp_waking_d: '同时先显示全部医院，请稍后重试。',
@@ -607,7 +607,9 @@
     function push(type, text) { if (text && !seen[text]) { seen[text] = 1; out.push({ type: type, text: text }); } }
     // 权威信号优先：全国专科领先 → 三甲等级 → 命中专科 → 评分 → 距离
     (rec && rec.leader_specialties || []).slice(0, 2).forEach(function (sp) { push('spec', t('hp_national_leader', { sp: sp })); });
-    (rec && rec.matched_specialties || []).slice(0, 3).forEach(function (sp) { push('spec', t('hp_strong_in', { sp: sp })); });
+    (rec && rec.matched_specialties || []).slice(0, 3).forEach(function (sp) {
+      push('spec', t(rec.evidence_source === 'curated_profile' ? 'hp_strong_in' : 'hp_name_indicates', { sp: sp }));
+    });
     if (h.rating) push('ok', t('hp_rated', { r: num(h.rating).toFixed(1) }));
     if (distKm != null) push('ok', t('hp_km_you', { km: distKm.toFixed(1) }));
     (rec && rec.reasons || []).forEach(function (r) { if (/speaks your language/i.test(r)) push('ok', t('hp_speaks')); else if (/emergency/i.test(r)) push('ok', t('hp_emergency')); });
@@ -785,7 +787,7 @@
       var raw = fit * .55 + (leaders.length ? 12 : 0) + (/三级甲等|三甲/.test(h.grade || '') ? 8 : 0) + 4 + (curLang === 'zh' ? 6 : 0) + (analysis.urgent && emergency >= 60 ? 12 : 0);
       var score = Math.max(0, Math.min(100, raw * factor));
       var copy = Object.assign({}, h);
-      copy.recommendation = { score: score, calibrated_score: score, match_level: score >= 70 ? 'high' : (score >= 50 ? 'moderate' : 'low'), eligible: eligible, matched_specialties: matched, leader_specialties: leaders, reasons: [], score_version: 'hospital-fit-v2.0-local' };
+      copy.recommendation = { score: score, calibrated_score: score, match_level: score >= 70 ? 'high' : (score >= 50 ? 'moderate' : 'low'), eligible: eligible, matched_specialties: matched, leader_specialties: leaders, reasons: [], evidence_source: 'curated_profile', score_version: 'hospital-fit-v2.0-local' };
       return copy;
     }).filter(function (h) { return h.recommendation.eligible; }).sort(function (a, b) { return b.recommendation.score - a.recommendation.score || String(a.name_zh).localeCompare(String(b.name_zh)); }).slice(0, 10);
   }

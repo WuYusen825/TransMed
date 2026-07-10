@@ -105,13 +105,13 @@ class HospitalRankingTests(unittest.TestCase):
 
 
 class RecommendationEndpointTests(unittest.TestCase):
-    def test_screenshot_case_returns_only_verified_psychiatry_hospitals(self) -> None:
+    def test_screenshot_case_puts_verified_psychiatry_hospitals_first(self) -> None:
         from transmed_app.backend import RecommendationIn, recommendations_api
 
         result = recommendations_api(RecommendationIn(symptoms="心情不好", city="北京", language="zh", limit=10))
         self.assertEqual(result["triage"]["department_en"], "Mental Health / Psychiatry")
         self.assertTrue(result["triage"]["needs_clarification"])
-        self.assertEqual({item["id"] for item in result["hospitals"]}, {"bj-anding", "bj-pku6"})
+        self.assertEqual({item["id"] for item in result["hospitals"][:2]}, {"bj-anding", "bj-pku6"})
         self.assertTrue(all(item["recommendation"]["score"] < 100 for item in result["hospitals"]))
         self.assertEqual(result["recommendation_meta"]["ranking_engine"], "hospital-fit-v2.0")
 
